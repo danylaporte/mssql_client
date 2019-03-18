@@ -24,6 +24,6 @@ install:
 build: false
 
 test_script:
-  - SET MSSQL_DB=server=tcp:%MSSQL%,1433;integratedSecurity=true;
+  - SET MSSQL_DB=server=tcp:localhost,1433;integratedSecurity=true;
   - cargo test --target %TARGET% --all
   - IF "%MSSQL%" == "SQL2016" cargo test
