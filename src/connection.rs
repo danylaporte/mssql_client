@@ -383,4 +383,20 @@ mod tests {
         assert_eq!("Foo", &rows[0].0);
         assert_eq!(3, rows[0].1);
     }
+
+    #[test]
+    fn query_decimal() {
+        let connection = block_on_all(Connection::from_env("MSSQL_DB")).unwrap();
+        let (_connection, rows) =
+            block_on_all(connection.query("SELECT CAST(15337032 as DECIMAL(28, 12))")).unwrap();
+        assert_eq!(decimal::Decimal::from(15337032), rows[0]);
+    }
+
+    #[test]
+    fn query_f64() {
+        let connection = block_on_all(Connection::from_env("MSSQL_DB")).unwrap();
+        let (_connection, rows) =
+            block_on_all(connection.query("SELECT CAST(15337032 as DECIMAL(28, 12))")).unwrap();
+        assert_eq!(15337032f64, rows[0]);
+    }
 }

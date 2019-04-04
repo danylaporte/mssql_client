@@ -113,14 +113,14 @@ impl<'a> FromColumnOpt<'a> for Uuid {
 impl<'a> FromColumn<'a> for Decimal {
     fn from_column(row: &'a Row, idx: usize) -> Result<Self, Error> {
         let n: Numeric = from_column!(body row(idx));
-        Ok(Decimal::new_with_scale(n.value() as i64, n.scale()))
+        Ok(Decimal::new_with_scale(n.value(), n.scale()))
     }
 }
 
 impl<'a> FromColumnOpt<'a> for Decimal {
     fn from_column_opt(row: &'a Row, idx: usize) -> Result<Option<Self>, Error> {
         let n: Option<Numeric> = from_column!(body row(idx));
-        Ok(n.map(|n| Decimal::new_with_scale(n.value() as i64, n.scale())))
+        Ok(n.map(|n| Decimal::new_with_scale(n.value(), n.scale())))
     }
 }
 
