@@ -73,8 +73,8 @@ impl ConnectionFactory {
     ///
     /// // do want you want with the connection ...
     /// ```
-    pub fn create_connection<'a>(&'a self) -> impl Future<Item = Connection, Error = Error> + 'a {
-        Connection::connect(self.0.as_str())
+    pub fn create_connection(&self) -> impl Future<Item = Connection, Error = Error> {
+        Connection::connect(self.0.clone())
     }
 }
 
