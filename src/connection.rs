@@ -1,8 +1,7 @@
 use crate::{utils, Command, FromRow, Query, Row, StateStreamExt, Transaction};
 use failure::{format_err, Error, ResultExt};
-use futures::{self, Future, IntoFuture};
+use futures::future::{err, Either, Future};
 use futures_state_stream::StateStream;
-use humantime::format_duration;
 use log::{debug, error, trace};
 use std::ffi::OsStr;
 use std::time::Instant;
@@ -55,13 +54,13 @@ impl Connection {
     /// let connection = Connection::connect(conn_str);
     /// ```
 
-    pub fn connect<S>(conn_str: S) -> Box<dyn Future<Item = Connection, Error = Error>>
+    pub fn connect<S>(conn_str: S) -> impl Future<Item = Connection, Error = Error>
     where
         S: Into<String>,
     {
         match utils::replace_conn_str_machine_with_ip(&conn_str.into()) {
-            Ok(conn_str) => conn_arch(conn_str),
-            Err(e) => Box::new(Err(e).into_future()),
+            Ok(conn_str) => Either::A(conn_arch(conn_str)),
+            Err(e) => Either::B(err(e)),
         }
     }
 
@@ -75,15 +74,15 @@ impl Connection {
     ///
     /// let connection = Connection::from_env("MSSQL_DB");
     /// ```
-    pub fn from_env<K>(key: K) -> Box<dyn Future<Item = Connection, Error = Error>>
+    pub fn from_env<K>(key: K) -> impl Future<Item = Connection, Error = Error>
     where
         K: AsRef<OsStr>,
     {
         let key = key.as_ref();
 
         match ::std::env::var(key) {
-            Ok(conn_str) => Connection::connect(conn_str),
-            Err(e) => Box::new(futures::future::err(format_err!(
+            Ok(conn_str) => Either::A(Connection::connect(conn_str)),
+            Err(e) => Either::B(err(format_err!(
                 "Connection from env variable {:#?} failed. {}",
                 key,
                 e
@@ -121,8 +120,8 @@ impl Connection {
 
         let map_conn = move |(_, c)| {
             debug!(
-                "Execute successful in {}.",
-                format_duration(Instant::now() - start)
+                "Execute successful in {}ms.",
+                (Instant::now() - start).as_millis(),
             );
             Connection(c)
         };
@@ -204,8 +203,8 @@ impl Connection {
 
         let map_result = move |(rows, c)| {
             debug!(
-                "Query successful in {}.",
-                format_duration(Instant::now() - start)
+                "Query successful in {}ms.",
+                (Instant::now() - start).as_millis(),
             );
             (Connection(c), rows)
         };
@@ -263,8 +262,8 @@ impl Connection {
             .and_then(|t| t.simple_exec("BEGIN TRANSACTION"))
             .map(move |(_, t)| {
                 debug!(
-                    "transaction started in {}.",
-                    format_duration(Instant::now() - start)
+                    "transaction started in {}ms.",
+                    (Instant::now() - start).as_millis(),
                 );
                 Transaction(t)
             })
@@ -281,7 +280,6 @@ impl Connection {
 #[cfg(windows)]
 fn conn_arch(conn_str: String) -> Box<dyn Future<Item = Connection, Error = Error>> {
     use failure::err_msg;
-    use futures::Future;
     use futures_locks::Mutex;
     use lazy_static::lazy_static;
 
@@ -307,8 +305,8 @@ fn conn_arch(conn_str: String) -> Box<dyn Future<Item = Connection, Error = Erro
                 .map(move |c| {
                     std::mem::drop(l); // drop the lock
                     debug!(
-                        "Connected to db in {}.",
-                        format_duration(Instant::now() - start)
+                        "Connected to db in {}ms.",
+                        (Instant::now() - start).as_millis(),
                     );
                     Connection(c)
                 })
@@ -331,8 +329,8 @@ fn conn_arch(conn_str: String) -> Box<dyn Future<Item = Connection, Error = Erro
     let q = SqlConnection::connect(&conn_str)
         .map(move |c| {
             debug!(
-                "Connected to db in {}.",
-                format_duration(Instant::now() - start)
+                "Connected to db in {}ms.",
+                (Instant::now() - start).as_millis(),
             );
             Connection(c)
         })

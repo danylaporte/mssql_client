@@ -2,7 +2,6 @@ use crate::{utils, Command, Connection, FromRow, Query, Row, StateStreamExt};
 use failure::{format_err, Error, ResultExt};
 use futures::Future;
 use futures_state_stream::StateStream;
-use humantime::format_duration;
 use log::{debug, error, trace};
 use std::time::Instant;
 use tiberius::ty::ToSql;
@@ -32,17 +31,16 @@ impl Command for Transaction {
 }
 
 impl Transaction {
-    pub fn commit(self) -> Box<dyn Future<Item = Connection, Error = Error>> {
+    pub fn commit(self) -> impl Future<Item = Connection, Error = Error> {
         debug!("Committing transaction...");
         let start = Instant::now();
 
-        let q = self
-            .0
+        self.0
             .commit()
             .map(move |c| {
                 debug!(
-                    "Transaction committed in {}.",
-                    format_duration(Instant::now() - start)
+                    "Transaction committed in {}ms.",
+                    (Instant::now() - start).as_millis(),
                 );
                 Connection(c)
             })
@@ -50,9 +48,7 @@ impl Transaction {
                 let e = format_err!("Transaction commit failed. {:?}", e);
                 error!("{}", e);
                 e
-            });
-
-        Box::new(q)
+            })
     }
 
     pub fn execute<'a, Q>(self, query: Q) -> Box<dyn Future<Item = Self, Error = Error>>
@@ -69,7 +65,7 @@ impl Transaction {
         let map_conn = move |(_, t)| {
             debug!(
                 "Execute successful in {}.",
-                format_duration(Instant::now() - start)
+                (Instant::now() - start).as_millis(),
             );
             Transaction(t)
         };
@@ -133,7 +129,7 @@ impl Transaction {
         let map_result = move |(rows, t)| {
             debug!(
                 "Query successful in {}.",
-                format_duration(Instant::now() - start)
+                (Instant::now() - start).as_millis(),
             );
             (Transaction(t), rows)
         };
@@ -181,17 +177,16 @@ impl Transaction {
         }
     }
 
-    pub fn rollback(self) -> Box<dyn Future<Item = Connection, Error = Error>> {
+    pub fn rollback(self) -> impl Future<Item = Connection, Error = Error> {
         debug!("Transaction rollback...");
         let start = Instant::now();
 
-        let q = self
-            .0
+        self.0
             .rollback()
             .map(move |c| {
                 debug!(
-                    "Transaction rollback successful in {}.",
-                    format_duration(Instant::now() - start)
+                    "Transaction rollback successful in {}ms.",
+                    (Instant::now() - start).as_millis(),
                 );
                 Connection(c)
             })
@@ -199,9 +194,7 @@ impl Transaction {
                 let e = format_err!("Rollback failed.{:?}", e);
                 error!("{}", e);
                 e
-            });
-
-        Box::new(q)
+            })
     }
 }
 
