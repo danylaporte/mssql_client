@@ -96,9 +96,7 @@ macro_rules! sql_query {
                 static ref SQL: String = sql_query!(delete from $t where ($($tf),+));
             }
 
-            let params = &[$(&$ef as &$crate::ToParameter,)*];
-            let query = $crate::Query { sql: SQL.as_str(), params };
-            $command.execute(query)
+            $command.execute_params(&*SQL, ($($ef,)*))
         }
     };
     (_body $command:ident { insert into $t:ident ($($tf:ident=$ef:expr),+$(,)*) }) => {
@@ -107,9 +105,7 @@ macro_rules! sql_query {
                 static ref SQL: String = sql_query!(insert into $t ($($tf),+));
             }
 
-            let params = &[$(&$ef as &$crate::ToParameter,)*];
-            let query = $crate::Query { sql: SQL.as_str(), params };
-            $command.execute(query)
+            $command.execute_params(&*SQL, ($($ef,)*))
         }
     };
     (_body $command:ident { merge into $t:ident set ($($tf:ident = $ef:expr),+$(,)*) where $(($tk:ident = $ek:expr)) and+ }) => {
@@ -118,9 +114,7 @@ macro_rules! sql_query {
                 static ref SQL: String = sql_query!(merge into $t set ($($tf),+) where ($($tk),+));
             }
 
-            let params = &[$(&$ek as &$crate::ToParameter,)* $(&$ef as &$crate::ToParameter,)*];
-            let query = $crate::Query { sql: SQL.as_str(), params };
-            $command.execute(query)
+            $command.execute_params(&*SQL, ($($ek,)* $($ef,)*))
         }
     };
     (_body $command:ident $o:ident { select ($($ts:ident as $fs:ident),+$(,)*) from $t:ident }) => {
@@ -164,9 +158,7 @@ macro_rules! sql_query {
                 })
             }
 
-            let params = &[$(&$ew as &$crate::ToParameter,)*];
-            let query = $crate::Query { sql: SQL.as_str(), params };
-            $command.query_with(query, from_row)
+            $command.query_params_with(&*SQL, ($($ew,)*), from_row)
         }
     };
     (_body $command:ident { update $t:ident set ($($ts:ident=$es:expr),+$(,)*) where $(($tw:ident = $ew:expr)) and+ }) => {
@@ -175,9 +167,7 @@ macro_rules! sql_query {
                 static ref SQL: String = sql_query!(update $t set ($($ts),+) where ($($tw),+));
             }
 
-            let params = &[$(&$es as &$crate::ToParameter,)* $(&$ew as &$crate::ToParameter,)*];
-            let query = $crate::Query { sql: SQL.as_str(), params };
-            $command.execute(query)
+            $command.execute_params(&*SQL, ($($es,)* $($ew,)*))
         }
     };
     (fn $fn:ident($($row:ident: $e:ty),+$(,)*) { $($statement:tt)+ }) => {
@@ -406,13 +396,13 @@ fn _compile_tests() {
     }
 
     sql_query! {
-        fn update2(id: i32, name: String) {
+        fn update2(id: i32, name: &str) {
             update MyTable set (Id = id, Name = name) where (Id = id) and (Name = name)
         }
     }
 
     sql_query! {
-        fn update3(id: i32, name: String,) {
+        fn update3(id: i32, name: &str,) {
             update MyTable set (Id = id, Name = name,) where (Id = id) and (Name = name)
         }
     }

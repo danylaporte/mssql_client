@@ -1,18 +1,4 @@
-use crate::Parameter;
 use failure::{bail, format_err, Error};
-use log::{log_enabled, trace, Level};
-
-pub fn trace_sql_params(sql: &str, params: &[Parameter]) {
-    if log_enabled!(Level::Trace) {
-        let p = params
-            .iter()
-            .map(|p| format!("{:?}", p))
-            .collect::<Vec<_>>()
-            .join(", ");
-
-        trace!("Sql: {}, Params: [{}]", sql, p);
-    }
-}
 
 /// Replace the machine name (if any) in the connection str with the ip.
 pub(crate) fn replace_conn_str_machine_with_ip(s: &str) -> Result<String, Error> {
