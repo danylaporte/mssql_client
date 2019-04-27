@@ -58,7 +58,7 @@ impl Connection {
     where
         S: Into<String>,
     {
-        match utils::replace_conn_str_machine_with_ip(&conn_str.into()) {
+        match utils::adjust_conn_str(&conn_str.into()) {
             Ok(conn_str) => Either::A(conn_arch(conn_str)),
             Err(e) => Either::B(err(e)),
         }

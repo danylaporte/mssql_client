@@ -1,5 +1,7 @@
+use conn_str::{append_key_value, MsSqlConnStr};
+use failure::{format_err, Error};
+use std::str::FromStr;
 use crate::Parameter;
-use failure::{bail, format_err, Error};
 use log::{log_enabled, trace, Level};
 
 pub fn trace_sql_params(sql: &str, params: &[Parameter]) {
@@ -14,19 +16,49 @@ pub fn trace_sql_params(sql: &str, params: &[Parameter]) {
     }
 }
 
-/// Replace the machine name (if any) in the connection str with the ip.
-pub(crate) fn replace_conn_str_machine_with_ip(s: &str) -> Result<String, Error> {
+pub(crate) fn adjust_conn_str(s: &str) -> Result<String, Error> {
+    let conn = MsSqlConnStr::from_str(s)?;
+
+    let datasource = conn
+        .data_source()
+        .filter(|s| !s.trim().is_empty())
+        .ok_or_else(|| format_err!("data source / server not specified in connection string."))?;
+
+    let datasource = resolve_datasource_into_ip(datasource)?;
     let mut out = String::new();
-    for s in s.split(';') {
-        if !out.is_empty() {
-            out.push(';');
+
+    append_key_value(&mut out, "server", &datasource, false);
+
+    if let Some(v) = conn.initial_catalog() {
+        append_key_value(&mut out, "database", v, false);
+    }
+
+    if let Some(v) = conn.user_id() {
+        append_key_value(&mut out, "user", v, false);
+    }
+
+    if let Some(v) = conn.password() {
+        append_key_value(&mut out, "password", v, false);
+    }
+
+    if conn.integrated_security()? {
+        append_key_value(&mut out, "integratedsecurity", "sspi", false);
         }
 
-        let mut s = s.split('=');
+    if conn.trust_server_certificate_or(true)? {
+        append_key_value(&mut out, "trustservercertificate", "true", false);
+    }
 
-        match (s.next(), s.next()) {
-            (Some("server"), Some(s)) => {
-                out.push_str("server=");
+    if conn.encrypt()? {
+        append_key_value(&mut out, "encrypt", "true", false)
+    }
+
+    Ok(out)
+}
+
+/// Resolve the sql server for replacing in connection str with the ip.
+fn resolve_datasource_into_ip(s: &str) -> Result<String, Error> {
+    let mut out = String::new();
 
                 let instance_sep = s.find('\\');
                 let port_sep = s.find(',');
@@ -42,6 +74,7 @@ pub(crate) fn replace_conn_str_machine_with_ip(s: &str) -> Result<String, Error>
                     port_sep.unwrap_or_else(|| s.len()),
                     instance_sep.unwrap_or_else(|| s.len()),
                 );
+
                 let machine = s.chars().take(m).skip(tcp_sep).collect::<String>();
                 let machine = resolve(&machine)?;
 
@@ -73,60 +106,42 @@ pub(crate) fn replace_conn_str_machine_with_ip(s: &str) -> Result<String, Error>
                     }
                     (None, None) => {}
                 }
-            }
-            (Some(a), Some(b)) => {
-                out.push_str(a);
-                out.push('=');
-                out.push_str(b);
-            }
-            _ => {}
-        }
 
-        if s.next().is_some() {
-            bail!("Invalid connection string");
-        }
-    }
-
-    log::trace!("resolved server connection string: {}", out);
-
+    log::trace!(
+        "resolved server connection string from `{}` to `{}`",
+        s,
+        out
+    );
     Ok(out)
 }
 
 #[test]
-fn replace_conn_str_machine_with_ip_works() {
-    assert!(replace_conn_str_machine_with_ip(
-        r#"server=tcp:localhost\Sql2017;database=Database1;"#
-    )
-    .is_ok());
+fn resolve_datasource_into_ip_works() {
+    assert!(resolve_datasource_into_ip(r#"tcp:localhost\Sql2017"#).is_ok());
 
-    assert!(
-        replace_conn_str_machine_with_ip(r#"server=tcp:localhost;database=Database1;"#).is_ok()
+    assert!(resolve_datasource_into_ip(r#"tcp:localhost"#).is_ok());
+
+    assert_eq!(
+        "tcp:127.0.0.1,1433",
+        resolve_datasource_into_ip(r#"tcp:localhost,1433"#).unwrap()
     );
 
     assert_eq!(
-        "server=tcp:127.0.0.1,1433;database=Database1;",
-        replace_conn_str_machine_with_ip(r#"server=tcp:localhost,1433;database=Database1;"#)
-            .unwrap()
+        "tcp:172.18.71.36,1433",
+        resolve_datasource_into_ip(r#"tcp:172.18.71.36,1433"#).unwrap()
     );
 
-    assert_eq!(
-        "server=tcp:172.18.71.36,1433;database=Db1;",
-        replace_conn_str_machine_with_ip(r#"server=tcp:172.18.71.36,1433;database=Db1;"#).unwrap()
-    );
+    assert!(resolve_datasource_into_ip(r#"tcp:localhost"#).is_ok());
 
-    assert!(replace_conn_str_machine_with_ip(r#"server=tcp:localhost;database=Database1"#).is_ok());
+    assert!(resolve_datasource_into_ip(r#"tcp:."#).is_ok());
 
-    assert!(replace_conn_str_machine_with_ip(r#"server=tcp:.;database=Database1;"#).is_ok());
+    assert!(resolve_datasource_into_ip(r#".\Sql2017"#).is_ok());
 
-    assert!(replace_conn_str_machine_with_ip(r#"server=.\Sql2017;database=Database1;"#).is_ok());
+    assert!(resolve_datasource_into_ip(r#"."#).is_ok());
 
-    assert!(replace_conn_str_machine_with_ip(r#"server=.;database=Database1;"#).is_ok());
+    assert!(resolve_datasource_into_ip(r#".,1433"#).is_ok());
 
-    assert!(replace_conn_str_machine_with_ip(r#"server=.,1433;database=Database1;"#).is_ok());
-
-    assert!(
-        replace_conn_str_machine_with_ip(r#"server=.\Sql2017,1433;database=Database1;"#).is_ok()
-    );
+    assert!(resolve_datasource_into_ip(r#".\Sql2017,1433"#).is_ok());
 }
 
 fn resolve(mut host: &str) -> Result<String, Error> {

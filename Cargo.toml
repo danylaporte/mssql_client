@@ -1,11 +1,12 @@
 [package]
 name = "mssql_client"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Dany Laporte <dany_laporte@hotmail.com>"]
 edition = "2018"
 
 [dependencies]
 chrono = "0.4"
+conn_str = { git = "https://github.com/danylaporte/conn_str.git" }
 decimal = { git = "https://github.com/danylaporte/dec19x5.git", package = "dec19x5" }
 failure = "0.1"
 futures = "0.1"
