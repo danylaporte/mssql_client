@@ -166,3 +166,66 @@ fn resolve_works() {
     assert!(resolve("localhost").is_ok());
     assert!(resolve(&std::env::var("COMPUTERNAME").unwrap()).is_ok());
 }
+
+pub fn replace_params(sql: &mut String, param: &str, replace: &str) {
+    enum State {
+        None,
+        Other,
+        Param(usize),
+    }
+
+    let mut vec = Vec::new();
+    let mut state = State::None;
+
+    for (index, c) in sql.char_indices() {
+        match state {
+            State::None => {
+                if c == '@' {
+                    state = State::Param(index + 1);
+                } else if !c.is_whitespace() && !c.is_ascii_punctuation() {
+                    state = State::Other;
+                }
+            }
+            State::Param(start) => {
+                if (c.is_whitespace() || c.is_ascii_punctuation()) && c != '@' && c != '_' {
+                    state = State::None;
+
+                    if sql[start..index].to_lowercase() == param {
+                        vec.push(start..index);
+                    }
+                } else if !c.is_alphanumeric() && c != '_' {
+                    state = State::Other;
+                }
+            }
+            State::Other => {
+                if c.is_whitespace() || c.is_ascii_punctuation() {
+                    state = State::None;
+                }
+            }
+        }
+    }
+
+    match state {
+        State::None | State::Other => {}
+        State::Param(start) => {
+            if sql[start..].to_lowercase() == param {
+                vec.push(start..sql.len());
+            }
+        }
+    }
+
+    for r in vec.into_iter().rev() {
+        sql.replace_range(r, replace);
+    }
+}
+
+#[test]
+fn replace_params_works() {
+    let mut s = "SELECT @p0,@p1,@p2 FROM Test".to_owned();
+
+    replace_params(&mut s, "p0", "param1");
+    replace_params(&mut s, "p1", "param2");
+    replace_params(&mut s, "p2", "param3");
+
+    assert_eq!("SELECT @param1,@param2,@param3 FROM Test", &s);
+}

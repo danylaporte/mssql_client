@@ -1,4 +1,6 @@
-pub extern crate regex;
+#![feature(test)]
+
+extern crate test;
 
 #[macro_use]
 mod from_row;
@@ -33,3 +35,4 @@ pub use self::params::*;
 pub use self::row::Row;
 pub(crate) use self::state_stream_ext::*;
 pub use self::transaction::Transaction;
+pub use self::utils::*;

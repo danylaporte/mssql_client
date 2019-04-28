@@ -7,7 +7,6 @@
 /// extern crate mssql_client;
 /// #[macro_use]
 /// extern crate lazy_static;
-/// extern crate regex;
 /// extern crate tokio;
 ///
 /// use mssql_client::Connection;
@@ -33,19 +32,18 @@ macro_rules! execute_sql {
             ::lazy_static::lazy_static! {
                 static ref SQL: String = {
                     let sql: &'static str = $sql;
-                    let q = sql;
+                    let mut sql = sql.to_owned();
                     let mut i = 1;
 
                     $(
-                        let r = format!("\\B@{}\\b", stringify!($fname));
-                        let q = $crate::regex::Regex::new(&r).unwrap().replace_all(&q[..], format!("@P{}", i).as_str());
+                        $crate::replace_params(&mut sql, stringify!($fname), &format!("P{}", i));
                         #[allow(unused_assignments)]
                         {
                             i += 1;
                         }
                     )*
 
-                    q.to_string()
+                    sql
                 };
             }
 
