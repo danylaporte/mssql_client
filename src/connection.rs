@@ -2,7 +2,7 @@ use crate::{utils, Command, FromRow, Params, Row, StateStreamExt, Transaction};
 use failure::{format_err, Error, ResultExt};
 use futures::future::{err, Either, Future};
 use futures_state_stream::StateStream;
-use log::{debug, error, trace};
+use log::{debug, error};
 use std::borrow::Cow;
 use std::ffi::OsStr;
 use std::time::Instant;
@@ -351,13 +351,13 @@ fn conn_arch(conn_str: String) -> Box<dyn Future<Item = Connection, Error = Erro
     // Lock while establishing a sql connection (only one call at a time)
     // This prevent a dead lock / timeout in the windows CertGetCertificateChain function.
 
-    trace!("acquiring connection lock.");
+    log::trace!("acquiring connection lock.");
 
     let q = GATE
         .lock()
         .map_err(|_| err_msg("Lock error."))
         .and_then(move |l| {
-            trace!("connection lock acquired.");
+            log::trace!("connection lock acquired.");
             debug!("Connecting to db...");
 
             let start = Instant::now();
