@@ -43,7 +43,6 @@ where
     type State = S::State;
     type Error = S::Error;
 
-    #[inline]
     fn poll(&mut self) -> Poll<StreamEvent<Self::Item, S::State>, S::Error> {
         loop {
             return match self.stream.poll()? {

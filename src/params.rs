@@ -13,7 +13,6 @@ pub trait Params<'a> {
 macro_rules! params {
     (ref $t:ty, $p:ident) => {
         impl<'a> Params<'a> for &$t {
-            #[inline]
             fn params(self, out: &mut Vec<Parameter<'a>>) {
                 out.push(Parameter::$p(*self));
             }
@@ -25,7 +24,6 @@ macro_rules! params {
             $($i: Params<'a>,)+
         {
             #[allow(non_snake_case)]
-            #[inline]
             fn params(self, out: &mut Vec<Parameter<'a>>) {
                 let ($($i,)+) = self;
                 $($i.params(out);)+
@@ -35,7 +33,6 @@ macro_rules! params {
 
     ($t:ty, $p:ident) => {
         impl<'a> Params<'a> for $t {
-            #[inline]
             fn params(self, out: &mut Vec<Parameter<'a>>) {
                 out.push(Parameter::$p(self));
             }
@@ -77,14 +74,12 @@ params!(tuple A,B,C,D,E,F,G,H,I,);
 params!(tuple A,B,C,D,E,F,G,H,I,J,);
 
 impl<'a> Params<'a> for Decimal {
-    #[inline]
     fn params(self, out: &mut Vec<Parameter<'a>>) {
         out.push(Parameter::F64(self.into()));
     }
 }
 
 impl<'a> Params<'a> for &Decimal {
-    #[inline]
     fn params(self, out: &mut Vec<Parameter<'a>>) {
         (*self).params(out)
     }
@@ -94,7 +89,6 @@ impl<'a, T> Params<'a> for Option<T>
 where
     T: Params<'a>,
 {
-    #[inline]
     fn params(self, out: &mut Vec<Parameter<'a>>) {
         match self {
             Some(v) => v.params(out),
@@ -107,7 +101,6 @@ impl<'a, T> Params<'a> for &'a Option<T>
 where
     &'a T: Params<'a>,
 {
-    #[inline]
     fn params(self, out: &mut Vec<Parameter<'a>>) {
         match self {
             Some(v) => v.params(out),
@@ -117,28 +110,24 @@ where
 }
 
 impl<'a> Params<'a> for Parameter<'a> {
-    #[inline]
     fn params(self, out: &mut Vec<Parameter<'a>>) {
         out.push(self);
     }
 }
 
 impl<'a> Params<'a> for String {
-    #[inline]
     fn params(self, out: &mut Vec<Parameter<'a>>) {
         out.push(Parameter::StringCow(Cow::Owned(self)));
     }
 }
 
 impl<'a> Params<'a> for Uuid {
-    #[inline]
     fn params(self, out: &mut Vec<Parameter<'a>>) {
         (&self).params(out)
     }
 }
 
 impl<'a> Params<'a> for &Uuid {
-    #[inline]
     fn params(self, out: &mut Vec<Parameter<'a>>) {
         let b = self.as_bytes();
         out.push(Parameter::Uuid(Guid::from_bytes(&[
@@ -152,7 +141,6 @@ impl<'a, T> Params<'a> for Vec<T>
 where
     T: Params<'a>,
 {
-    #[inline]
     fn params(self, out: &mut Vec<Parameter<'a>>) {
         for item in self {
             item.params(out);
@@ -161,7 +149,6 @@ where
 }
 
 impl<'a> Params<'a> for () {
-    #[inline]
     fn params(self, _: &mut Vec<Parameter<'a>>) {}
 }
 
