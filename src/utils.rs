@@ -53,8 +53,9 @@ fn resolve_datasource_into_ip(s: &str) -> Result<String, Error> {
 
     if has_tcp {
         tcp_sep = 4;
-        out.push_str("tcp:");
     }
+
+    out.push_str("tcp:");
 
     let m = std::cmp::min(
         port_sep.unwrap_or_else(|| s.len()),
