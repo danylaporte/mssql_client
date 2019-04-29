@@ -1,8 +1,8 @@
+use crate::Parameter;
 use conn_str::{append_key_value, MsSqlConnStr};
 use failure::{format_err, Error};
-use std::str::FromStr;
-use crate::Parameter;
 use log::{log_enabled, trace, Level};
+use std::str::FromStr;
 
 pub fn trace_sql_params(sql: &str, params: &[Parameter]) {
     if log_enabled!(Level::Trace) {
@@ -43,7 +43,7 @@ pub(crate) fn adjust_conn_str(s: &str) -> Result<String, Error> {
 
     if conn.integrated_security()? {
         append_key_value(&mut out, "integratedsecurity", "sspi", false);
-        }
+    }
 
     if conn.trust_server_certificate_or(true)? {
         append_key_value(&mut out, "trustservercertificate", "true", false);
@@ -60,52 +60,53 @@ pub(crate) fn adjust_conn_str(s: &str) -> Result<String, Error> {
 fn resolve_datasource_into_ip(s: &str) -> Result<String, Error> {
     let mut out = String::new();
 
-                let instance_sep = s.find('\\');
-                let port_sep = s.find(',');
-                let has_tcp = s.to_lowercase().starts_with("tcp:");
-                let mut tcp_sep = 0;
+    let instance_sep = s.find('\\');
+    let port_sep = s.find(',');
+    let has_tcp = s.to_lowercase().starts_with("tcp:");
+    let mut tcp_sep = 0;
 
-                if has_tcp {
-                    tcp_sep = 4;
-                    out.push_str("tcp:");
-                }
+    if has_tcp {
+        tcp_sep = 4;
+    }
 
-                let m = std::cmp::min(
-                    port_sep.unwrap_or_else(|| s.len()),
-                    instance_sep.unwrap_or_else(|| s.len()),
-                );
+    out.push_str("tcp:");
 
-                let machine = s.chars().take(m).skip(tcp_sep).collect::<String>();
-                let machine = resolve(&machine)?;
+    let m = std::cmp::min(
+        port_sep.unwrap_or_else(|| s.len()),
+        instance_sep.unwrap_or_else(|| s.len()),
+    );
 
-                out.push_str(&machine);
+    let machine = s.chars().take(m).skip(tcp_sep).collect::<String>();
+    let machine = resolve(&machine)?;
 
-                let instance = instance_sep.map(|i| {
-                    s.chars()
-                        .take(port_sep.unwrap_or_else(|| s.len()))
-                        .skip(i)
-                        .collect::<String>()
-                });
+    out.push_str(&machine);
 
-                let port = port_sep
-                    .map(|i| s.chars().skip(i + 1).collect::<String>())
-                    .filter(|p| !p.is_empty());
+    let instance = instance_sep.map(|i| {
+        s.chars()
+            .take(port_sep.unwrap_or_else(|| s.len()))
+            .skip(i)
+            .collect::<String>()
+    });
 
-                match (instance, port) {
-                    (Some(instance), Some(port)) => {
-                        out.push_str(&instance);
-                        out.push(',');
-                        out.push_str(&port);
-                    }
-                    (Some(instance), None) => {
-                        out.push_str(&instance);
-                    }
-                    (None, Some(port)) => {
-                        out.push(',');
-                        out.push_str(&port);
-                    }
-                    (None, None) => {}
-                }
+    let port = port_sep
+        .map(|i| s.chars().skip(i + 1).collect::<String>())
+        .filter(|p| !p.is_empty());
+
+    match (instance, port) {
+        (Some(instance), Some(port)) => {
+            out.push_str(&instance);
+            out.push(',');
+            out.push_str(&port);
+        }
+        (Some(instance), None) => {
+            out.push_str(&instance);
+        }
+        (None, Some(port)) => {
+            out.push(',');
+            out.push_str(&port);
+        }
+        (None, None) => {}
+    }
 
     log::trace!(
         "resolved server connection string from `{}` to `{}`",
