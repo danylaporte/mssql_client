@@ -105,7 +105,9 @@ fn resolve_datasource_into_ip(s: &str) -> Result<String, Error> {
             out.push(',');
             out.push_str(&port);
         }
-        (None, None) => {}
+        (None, None) => {
+            out.push_str(",1433");
+        }
     }
 
     log::trace!(

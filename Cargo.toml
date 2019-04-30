@@ -1,6 +1,6 @@
 [package]
 name = "mssql_client"
-version = "0.1.2"
+version = "0.1.3"
 authors = ["Dany Laporte <dany_laporte@hotmail.com>"]
 edition = "2018"
 
