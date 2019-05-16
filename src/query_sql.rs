@@ -5,8 +5,6 @@
 /// ```
 /// #[macro_use]
 /// extern crate mssql_client;
-/// #[macro_use]
-/// extern crate lazy_static;
 /// extern crate tokio;
 ///
 /// use mssql_client::Connection;

@@ -92,7 +92,7 @@ macro_rules! sql_query {
     };
     (_body $command:ident { delete from $t:ident where $(($tf:ident = $ef:expr)) and+ }) => {
         {
-            ::lazy_static::lazy_static! {
+            $crate::lazy_static::lazy_static! {
                 static ref SQL: String = sql_query!(delete from $t where ($($tf),+));
             }
 
@@ -101,7 +101,7 @@ macro_rules! sql_query {
     };
     (_body $command:ident { insert into $t:ident ($($tf:ident=$ef:expr),+$(,)*) }) => {
         {
-            ::lazy_static::lazy_static! {
+            $crate::lazy_static::lazy_static! {
                 static ref SQL: String = sql_query!(insert into $t ($($tf),+));
             }
 
@@ -110,7 +110,7 @@ macro_rules! sql_query {
     };
     (_body $command:ident { merge into $t:ident set ($($tf:ident = $ef:expr),+$(,)*) where $(($tk:ident = $ek:expr)) and+ }) => {
         {
-            ::lazy_static::lazy_static! {
+            $crate::lazy_static::lazy_static! {
                 static ref SQL: String = sql_query!(merge into $t set ($($tf),+) where ($($tk),+));
             }
 
@@ -124,7 +124,7 @@ macro_rules! sql_query {
     };
     (_body $command:ident $o:ident { select ($($ts:ident as $fs:ident),+$(,)*) from $t:ident others { $($fo:ident: $xo:expr),*$(,)*}  }) => {
         {
-            ::lazy_static::lazy_static! {
+            $crate::lazy_static::lazy_static! {
                 static ref SQL: String = sql_query!(select ($($ts),+) from $t);
             }
 
@@ -145,7 +145,7 @@ macro_rules! sql_query {
     };
     (_body $command:ident $o:ident { select ($($ts:ident as $fs:ident),+$(,)*) from $t:ident where $(($tw:ident = $ew:ident)) and+ others { $($fo:ident: $xo:expr),*$(,)*}  }) => {
         {
-            ::lazy_static::lazy_static! {
+            $crate::lazy_static::lazy_static! {
                 static ref SQL: String = sql_query!(select ($($ts),+) from $t where ($($tw),+) );
             }
 
@@ -163,7 +163,7 @@ macro_rules! sql_query {
     };
     (_body $command:ident { update $t:ident set ($($ts:ident=$es:expr),+$(,)*) where $(($tw:ident = $ew:expr)) and+ }) => {
         {
-            ::lazy_static::lazy_static! {
+            $crate::lazy_static::lazy_static! {
                 static ref SQL: String = sql_query!(update $t set ($($ts),+) where ($($tw),+));
             }
 

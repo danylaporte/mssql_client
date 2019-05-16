@@ -5,8 +5,6 @@
 /// ```
 /// #[macro_use]
 /// extern crate mssql_client;
-/// #[macro_use]
-/// extern crate lazy_static;
 /// extern crate tokio;
 ///
 /// use mssql_client::Connection;
@@ -29,7 +27,7 @@
 macro_rules! execute_sql {
     ($command:expr, $sql:expr, $($fname:ident = $fvalue:expr),* $(,)*) => {
         {
-            ::lazy_static::lazy_static! {
+            $crate::lazy_static::lazy_static! {
                 static ref SQL: String = {
                     let sql: &'static str = $sql;
                     let mut sql = sql.to_owned();
