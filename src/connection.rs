@@ -263,9 +263,10 @@ impl Connection {
 
         log::debug!("Querying {}", log_sql);
 
-        let map_err = move |e| {
+        let map_err1 = |e| format_err!("Query failed. {:?}", e);
+        let map_err2 = move |e| {
             debug!("Query failed {}.", log_sql);
-            format_err!("Query failed. {:?}", e)
+            e
         };
 
         let map_ok = move |(rows, c)| {
@@ -282,10 +283,11 @@ impl Connection {
             Box::new(
                 self.0
                     .simple_query(sql)
-                    .map_err(map_err)
+                    .map_err(map_err1)
                     .map_result_exhaust(map_rows)
                     .collect()
-                    .map(map_ok),
+                    .map(map_ok)
+                    .map_err(map_err2),
             )
         } else {
             let params = p.iter().map(|p| p.into()).collect::<Vec<_>>();
@@ -293,10 +295,11 @@ impl Connection {
             Box::new(
                 self.0
                     .query(sql, &params)
-                    .map_err(map_err)
+                    .map_err(map_err1)
                     .map_result_exhaust(map_rows)
                     .collect()
-                    .map(map_ok),
+                    .map(map_ok)
+                    .map_err(map_err2),
             )
         }
     }
