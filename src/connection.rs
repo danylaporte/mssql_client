@@ -2,7 +2,7 @@ use crate::{utils, Command, FromRow, Params, Row, StateStreamExt, Transaction};
 use failure::{format_err, Error, ResultExt};
 use futures::future::{err, Either, Future};
 use futures_state_stream::StateStream;
-use log::{debug, error};
+use log::{debug, error, trace};
 use std::borrow::Cow;
 use std::ffi::OsStr;
 use std::time::Instant;
@@ -180,7 +180,7 @@ impl Connection {
         let log_sql = format!("{:?}\nParams: {:#?}", sql, p);
         let start = Instant::now();
 
-        log::debug!("Executing {}", log_sql);
+        trace!("Executing {}", log_sql);
 
         let map_err = move |e| {
             debug!("Execute failed {}.", log_sql);
@@ -261,16 +261,16 @@ impl Connection {
         let log_sql = format!("{:?}\nParams: {:#?}", sql, p);
         let start = Instant::now();
 
-        log::debug!("Querying {}", log_sql);
+        trace!("Querying {}", log_sql);
 
         let map_err1 = |e| format_err!("Query failed. {:?}", e);
         let map_err2 = move |e| {
-            debug!("Query failed {}.", log_sql);
+            trace!("Query failed {}.", log_sql);
             e
         };
 
         let map_ok = move |(rows, c)| {
-            debug!(
+            trace!(
                 "Query executed in {}ms.",
                 (Instant::now() - start).as_millis(),
             );
@@ -317,7 +317,7 @@ impl Connection {
     }
 
     pub fn transaction(self) -> Box<dyn Future<Item = Transaction, Error = Error>> {
-        debug!("starting transaction...");
+        trace!("starting transaction...");
         let start = Instant::now();
 
         let q = self
@@ -325,7 +325,7 @@ impl Connection {
             .transaction()
             .and_then(|t| t.simple_exec("BEGIN TRANSACTION"))
             .map(move |(_, t)| {
-                debug!(
+                trace!(
                     "transaction started in {}ms.",
                     (Instant::now() - start).as_millis(),
                 );
@@ -354,21 +354,21 @@ fn conn_arch(conn_str: String) -> Box<dyn Future<Item = Connection, Error = Erro
     // Lock while establishing a sql connection (only one call at a time)
     // This prevent a dead lock / timeout in the windows CertGetCertificateChain function.
 
-    log::trace!("acquiring connection lock.");
+    trace!("acquiring connection lock.");
 
     let q = GATE
         .lock()
         .map_err(|_| err_msg("Lock error."))
         .and_then(move |l| {
-            log::trace!("connection lock acquired.");
-            debug!("Connecting to db...");
+            trace!("connection lock acquired.");
+            trace!("Connecting to db...");
 
             let start = Instant::now();
 
             SqlConnection::connect(&conn_str)
                 .map(move |c| {
                     std::mem::drop(l); // drop the lock
-                    debug!(
+                    trace!(
                         "Connected to db in {}ms.",
                         (Instant::now() - start).as_millis(),
                     );
@@ -387,12 +387,12 @@ fn conn_arch(conn_str: String) -> Box<dyn Future<Item = Connection, Error = Erro
 
 #[cfg(not(windows))]
 fn conn_arch(conn_str: String) -> Box<dyn Future<Item = Connection, Error = Error>> {
-    debug!("Connecting to db...");
+    trace!("Connecting to db...");
     let start = Instant::now();
 
     let q = SqlConnection::connect(&conn_str)
         .map(move |c| {
-            debug!(
+            trace!(
                 "Connected to db in {}ms.",
                 (Instant::now() - start).as_millis(),
             );

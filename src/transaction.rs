@@ -2,7 +2,7 @@ use crate::{Command, Connection, FromRow, Params, Row, StateStreamExt};
 use failure::{format_err, Error, ResultExt};
 use futures::Future;
 use futures_state_stream::StateStream;
-use log::{debug, error};
+use log::{debug, error, trace};
 use std::borrow::Cow;
 use std::time::Instant;
 use tiberius::{BoxableIo, Transaction as SqlTransaction};
@@ -83,13 +83,13 @@ impl Command for Transaction {
 
 impl Transaction {
     pub fn commit(self) -> impl Future<Item = Connection, Error = Error> {
-        debug!("Committing transaction...");
+        trace!("Committing transaction...");
         let start = Instant::now();
 
         self.0
             .commit()
             .map(move |c| {
-                debug!(
+                trace!(
                     "Transaction committed in {}ms.",
                     (Instant::now() - start).as_millis(),
                 );
@@ -125,7 +125,7 @@ impl Transaction {
         let log_sql = format!("{:?}\nParams: {:#?}", sql, p);
         let start = Instant::now();
 
-        log::debug!("Executing {}", log_sql);
+        trace!("Executing {}", log_sql);
 
         let map_err = move |e| {
             debug!("Execute failed {}.", log_sql);
@@ -133,7 +133,7 @@ impl Transaction {
         };
 
         let map_ok = move |(_, c)| {
-            debug!(
+            trace!(
                 "Execute executed in {}ms.",
                 (Instant::now() - start).as_millis(),
             );
@@ -187,15 +187,16 @@ impl Transaction {
         let log_sql = format!("{:?}\nParams: {:#?}", sql, p);
         let start = Instant::now();
 
-        log::debug!("Querying {}", log_sql);
+        trace!("Querying {}", log_sql);
 
-        let map_err = move |e| {
-            debug!("Query failed {}.", log_sql);
-            format_err!("Query failed. {:?}", e)
+        let map_err1 = |e| format_err!("Query failed. {:?}", e);
+        let map_err2 = move |e| {
+            trace!("Query failed {}.", log_sql);
+            e
         };
 
         let map_ok = move |(rows, t)| {
-            debug!(
+            trace!(
                 "Query executed in {}ms.",
                 (Instant::now() - start).as_millis(),
             );
@@ -208,10 +209,11 @@ impl Transaction {
             Box::new(
                 self.0
                     .simple_query(sql)
-                    .map_err(map_err)
+                    .map_err(map_err1)
                     .map_result_exhaust(map_rows)
                     .collect()
-                    .map(map_ok),
+                    .map(map_ok)
+                    .map_err(map_err2),
             )
         } else {
             let params = p.iter().map(|p| p.into()).collect::<Vec<_>>();
@@ -219,10 +221,11 @@ impl Transaction {
             Box::new(
                 self.0
                     .query(sql, &params)
-                    .map_err(map_err)
+                    .map_err(map_err1)
                     .map_result_exhaust(map_rows)
                     .collect()
-                    .map(map_ok),
+                    .map(map_ok)
+                    .map_err(map_err2),
             )
         }
     }
@@ -240,13 +243,13 @@ impl Transaction {
     }
 
     pub fn rollback(self) -> impl Future<Item = Connection, Error = Error> {
-        debug!("Transaction rollback...");
+        trace!("Transaction rollback...");
         let start = Instant::now();
 
         self.0
             .rollback()
             .map(move |c| {
-                debug!(
+                trace!(
                     "Transaction rollback successful in {}ms.",
                     (Instant::now() - start).as_millis(),
                 );
