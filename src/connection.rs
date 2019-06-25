@@ -1,5 +1,8 @@
-use crate::{utils, Command, FromRow, Params, Row, StateStreamExt, Transaction};
-use failure::{format_err, Error, ResultExt};
+use crate::{
+    utils::{self, reduce},
+    Command, FromRow, Params, Row, Transaction,
+};
+use failure::{format_err, Error};
 use futures::future::{err, Either, Future};
 use futures_state_stream::StateStream;
 use log::{debug, error, trace};
@@ -20,77 +23,32 @@ use tiberius::{BoxableIo, SqlConnection};
 /// let conn_str = "server=tcp:localhost\\SQL2017;database=Database1;integratedsecurity=sspi;trustservercertificate=true";
 /// let connection = Connection::connect(conn_str);
 /// ```
-pub struct Connection(pub(super) SqlConnection<Box<BoxableIo>>);
+pub struct Connection(pub(super) SqlConnection<Box<dyn BoxableIo>>);
 
 impl Command for Connection {
-    fn execute<S>(self, sql: S) -> Box<dyn Future<Item = Self, Error = Error>>
-    where
-        S: Into<Cow<'static, str>>,
-    {
-        self.execute(sql)
-    }
-
-    fn execute_params<'a, S, P>(
-        self,
-        sql: S,
-        params: P,
-    ) -> Box<dyn Future<Item = Self, Error = Error>>
+    fn execute<'a, S, P>(self, sql: S, params: P) -> Box<dyn Future<Item = Self, Error = Error>>
     where
         P: Params<'a>,
         S: Into<Cow<'static, str>>,
     {
-        self.execute_params(sql, params)
+        Box::new(self.execute(sql, params))
     }
 
-    fn query<T, S>(self, sql: S) -> Box<dyn Future<Item = (Self, Vec<T>), Error = Error>>
-    where
-        S: Into<Cow<'static, str>>,
-        T: FromRow + 'static,
-        Self: Sized,
-    {
-        self.query(sql)
-    }
-
-    fn query_params<'a, T, S, P>(
+    fn query_fold<'a, T, S, P, F>(
         self,
         sql: S,
         params: P,
-    ) -> Box<dyn Future<Item = (Self, Vec<T>), Error = Error>>
-    where
-        P: Params<'a>,
-        S: Into<Cow<'static, str>>,
-        T: FromRow + 'static,
-        Self: Sized,
-    {
-        self.query_params(sql, params)
-    }
-
-    fn query_params_with<'a, T, S, P, F>(
-        self,
-        sql: S,
-        params: P,
+        init: T,
         func: F,
-    ) -> Box<dyn Future<Item = (Self, Vec<T>), Error = Error>>
+    ) -> Box<dyn Future<Item = (Self, T), Error = Error>>
     where
-        F: FnMut(&Row) -> Result<T, Error> + 'static,
-        S: Into<Cow<'static, str>>,
+        F: FnMut(T, &Row) -> Result<T, Error> + 'static,
         P: Params<'a>,
-        Self: Sized,
-    {
-        self.query_params_with(sql, params, func)
-    }
-
-    fn query_with<T, S, F>(
-        self,
-        sql: S,
-        func: F,
-    ) -> Box<dyn Future<Item = (Self, Vec<T>), Error = Error>>
-    where
-        F: FnMut(&Row) -> Result<T, Error> + 'static,
         S: Into<Cow<'static, str>>,
         Self: Sized,
+        T: 'static,
     {
-        self.query_with(sql, func)
+        self.query_fold(sql, params, init, func)
     }
 }
 
@@ -153,22 +111,11 @@ impl Connection {
     ///
     /// fn main() {
     ///     let connection = block_on_all(Connection::from_env("MSSQL_DB")).unwrap();
-    ///     let query = connection.execute("DECLARE @a INT = 0");
+    ///     let query = connection.execute("DECLARE @a INT = 0", ());
     ///     let connection = block_on_all(query).unwrap();
     /// }
     /// ```
-    pub fn execute<S>(self, sql: S) -> Box<dyn Future<Item = Self, Error = Error>>
-    where
-        S: Into<Cow<'static, str>>,
-    {
-        self.execute_params(sql, ())
-    }
-
-    pub fn execute_params<'a, S, P>(
-        self,
-        sql: S,
-        params: P,
-    ) -> Box<dyn Future<Item = Self, Error = Error>>
+    pub fn execute<'a, S, P>(self, sql: S, params: P) -> Box<dyn Future<Item = Self, Error = Error>>
     where
         S: Into<Cow<'static, str>>,
         P: Params<'a>,
@@ -195,13 +142,12 @@ impl Connection {
             Connection(c)
         };
 
-        if p.is_empty() {
-            Box::new(self.0.simple_exec(sql).map_err(map_err).map(map_ok))
+        Box::new(if p.is_empty() {
+            Either::A(self.0.simple_exec(sql).map_err(map_err).map(map_ok))
         } else {
             let params = p.iter().map(|p| p.into()).collect::<Vec<_>>();
-
-            Box::new(self.0.exec(sql, &params).map_err(map_err).map(map_ok))
-        }
+            Either::B(self.0.exec(sql, &params).map_err(map_err).map(map_ok))
+        })
     }
 
     /// Execute sql query and returns all the rows.
@@ -217,42 +163,36 @@ impl Connection {
     ///
     /// fn main() {
     ///     let connection = block_on_all(Connection::from_env("MSSQL_DB")).unwrap();
-    ///     let query = connection.query("SELECT 1");
+    ///     let query = connection.query("SELECT 1", ());
     ///     let (connection, rows): (_, Vec<i32>) = block_on_all(query).unwrap();
     ///     assert_eq!(rows[0], 1);
     /// }
     /// ```
-    pub fn query<T, S>(self, sql: S) -> Box<dyn Future<Item = (Self, Vec<T>), Error = Error>>
-    where
-        S: Into<Cow<'static, str>>,
-        T: FromRow + 'static,
-    {
-        self.query_params_with(sql, (), FromRow::from_row)
-    }
-
-    pub fn query_params<'a, T, S, P>(
+    pub fn query<'a, T, S, P>(
         self,
         sql: S,
         params: P,
     ) -> Box<dyn Future<Item = (Self, Vec<T>), Error = Error>>
     where
-        P: Params<'a>,
         S: Into<Cow<'static, str>>,
         T: FromRow + 'static,
+        P: Params<'a>,
     {
-        self.query_params_with(sql, params, FromRow::from_row)
+        self.query_map(sql, params, FromRow::from_row)
     }
 
-    pub fn query_params_with<'a, T, S, P, F>(
+    pub fn query_fold<'a, T, S, P, F>(
         self,
         sql: S,
         params: P,
+        init: T,
         mut func: F,
-    ) -> Box<dyn Future<Item = (Self, Vec<T>), Error = Error>>
+    ) -> Box<dyn Future<Item = (Self, T), Error = Error>>
     where
-        F: FnMut(&Row) -> Result<T, Error> + 'static,
+        F: FnMut(T, &Row) -> Result<T, Error> + 'static,
         S: Into<Cow<'static, str>>,
         P: Params<'a>,
+        T: 'static,
     {
         let mut p = Vec::new();
         params.params(&mut p);
@@ -263,57 +203,55 @@ impl Connection {
 
         trace!("Querying {}", log_sql);
 
-        let map_err1 = |e| format_err!("Query failed. {:?}", e);
-        let map_err2 = move |e| {
-            trace!("Query failed {}.", log_sql);
-            e
+        let map_err = |e| format_err!("Query failed. {:?}", e);
+
+        let next = move |r, row| match func(r, &Row(row)) {
+            Ok(v) => Ok(v),
+            Err(e) => Err(format_err!("Row conversion failed. {}", e)),
         };
 
-        let map_ok = move |(rows, c)| {
-            trace!(
-                "Query executed in {}ms.",
-                (Instant::now() - start).as_millis(),
-            );
-            (Connection(c), rows)
-        };
-
-        let map_rows = move |row| func(&Row(row)).context("row conversion failed.");
-
-        if p.is_empty() {
-            Box::new(
-                self.0
-                    .simple_query(sql)
-                    .map_err(map_err1)
-                    .map_result_exhaust(map_rows)
-                    .collect()
-                    .map(map_ok)
-                    .map_err(map_err2),
-            )
+        let fut = if p.is_empty() {
+            let stream = self.0.simple_query(sql).map_err(map_err);
+            Either::A(reduce(stream, init, next))
         } else {
             let params = p.iter().map(|p| p.into()).collect::<Vec<_>>();
+            let stream = self.0.query(sql, &params).map_err(map_err);
 
-            Box::new(
-                self.0
-                    .query(sql, &params)
-                    .map_err(map_err1)
-                    .map_result_exhaust(map_rows)
-                    .collect()
-                    .map(map_ok)
-                    .map_err(map_err2),
-            )
-        }
+            Either::B(reduce(stream, init, next))
+        };
+
+        Box::new(
+            fut.map(move |(c, r)| {
+                trace!(
+                    "Query executed in {}ms.",
+                    (Instant::now() - start).as_millis(),
+                );
+
+                (Connection(c), r)
+            })
+            .map_err(move |e| {
+                trace!("Query failed {}.", log_sql);
+                e
+            }),
+        )
     }
 
-    pub fn query_with<T, S, F>(
+    pub fn query_map<'a, T, S, P, F>(
         self,
         sql: S,
-        func: F,
+        params: P,
+        mut func: F,
     ) -> Box<dyn Future<Item = (Self, Vec<T>), Error = Error>>
     where
         F: FnMut(&Row) -> Result<T, Error> + 'static,
         S: Into<Cow<'static, str>>,
+        P: Params<'a>,
+        T: 'static,
     {
-        self.query_params_with(sql, (), func)
+        self.query_fold(sql, params, Vec::new(), move |mut vec, row| {
+            vec.push(func(row)?);
+            Ok(vec)
+        })
     }
 
     pub fn transaction(self) -> Box<dyn Future<Item = Transaction, Error = Error>> {
@@ -421,14 +359,13 @@ mod tests {
     #[test]
     fn execute() {
         let connection = block_on_all(Connection::from_env("MSSQL_DB")).unwrap();
-        let _connection = block_on_all(connection.execute("DECLARE @a INT = 0")).unwrap();
+        let _connection = block_on_all(connection.execute("DECLARE @a INT = 0", ())).unwrap();
     }
 
     #[test]
     fn execute_params() {
         block_on_all(
-            Connection::from_env("MSSQL_DB")
-                .and_then(|t| t.execute_params("DECLARE @a INT = @p1", 10)),
+            Connection::from_env("MSSQL_DB").and_then(|t| t.execute("DECLARE @a INT = @p1", 10)),
         )
         .unwrap();
     }
@@ -436,26 +373,53 @@ mod tests {
     #[test]
     fn query() {
         let connection = block_on_all(Connection::from_env("MSSQL_DB")).unwrap();
-        let (_connection, rows) = block_on_all(connection.query("SELECT 2")).unwrap();
+        let (_connection, rows) = block_on_all(connection.query("SELECT 2", ())).unwrap();
         assert_eq!(2, rows[0]);
     }
 
     #[test]
     fn query_params() {
         let connection = block_on_all(Connection::from_env("MSSQL_DB")).unwrap();
-        let (_connection, rows) = block_on_all(
-            connection.query_params::<(String, i32), _, _>("SELECT @P1, @P2", ("Foo", 3)),
-        )
-        .unwrap();
+        let (_connection, rows) =
+            block_on_all(connection.query::<(String, i32), _, _>("SELECT @P1, @P2", ("Foo", 3)))
+                .unwrap();
         assert_eq!("Foo", &rows[0].0);
         assert_eq!(3, rows[0].1);
+    }
+
+    #[test]
+    fn query_params_nulls() {
+        use uuid::Uuid;
+
+        let connection = block_on_all(Connection::from_env("MSSQL_DB")).unwrap();
+
+        let sql = r#"
+            DECLARE @V1 NVARCHAR(100) = @p1;
+            DECLARE @V2 INT = @p2;
+            DECLARE @V3 UNIQUEIDENTIFIER = @p3;
+
+            SELECT @V1, @V2, @V3
+        "#;
+
+        let (_connection, rows) =
+            block_on_all(
+                connection.query::<(Option<String>, Option<i32>, Option<Uuid>), _, _>(
+                    sql,
+                    (None::<&str>, None::<i32>, None::<Uuid>),
+                ),
+            )
+            .unwrap();
+
+        assert_eq!(None, rows[0].0);
+        assert_eq!(None, rows[0].1);
+        assert_eq!(None, rows[0].2);
     }
 
     #[test]
     fn query_decimal() {
         let connection = block_on_all(Connection::from_env("MSSQL_DB")).unwrap();
         let (_connection, rows) =
-            block_on_all(connection.query("SELECT CAST(15337032 as DECIMAL(28, 12))")).unwrap();
+            block_on_all(connection.query("SELECT CAST(15337032 as DECIMAL(28, 12))", ())).unwrap();
         assert_eq!(decimal::Decimal::from(15337032), rows[0]);
     }
 
@@ -463,7 +427,7 @@ mod tests {
     fn query_f64() {
         let connection = block_on_all(Connection::from_env("MSSQL_DB")).unwrap();
         let (_connection, rows) =
-            block_on_all(connection.query("SELECT CAST(15337032 as DECIMAL(28, 12))")).unwrap();
+            block_on_all(connection.query("SELECT CAST(15337032 as DECIMAL(28, 12))", ())).unwrap();
         assert_eq!(15337032f64, rows[0]);
     }
 }

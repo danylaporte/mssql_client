@@ -15,7 +15,7 @@ use tokio::executor::current_thread::block_on_all;
 fn main() {
     let conn_str = "server=tcp:localhost\\SQL2017;database=Database1;integratedsecurity=sspi;trustservercertificate=true";
     let connection = Connection::connect(conn_str);
-    let query = connection.query("SELECT 1 FROM Table1");
+    let query = connection.query("SELECT 1 FROM Table1", ());
     let (connection, rows): (_, Vec<i32>) = block_on_all(query).unwrap();
 }
 ```

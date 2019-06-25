@@ -47,7 +47,7 @@ macro_rules! query_sql {
                 };
             }
 
-            $command.query_params(&*SQL, ($($fvalue,)*))
+            $command.query(&*SQL, ($($fvalue,)*))
         }
     };
 }

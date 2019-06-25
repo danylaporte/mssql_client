@@ -1,5 +1,7 @@
 use conn_str::{append_key_value, MsSqlConnStr};
 use failure::{format_err, Error};
+use futures::Future;
+use futures_state_stream::StateStream;
 use std::str::FromStr;
 
 pub(crate) fn adjust_conn_str(s: &str) -> Result<String, Error> {
@@ -231,4 +233,40 @@ fn replace_params_works() {
     replace_params(&mut s, "p2", "param3");
 
     assert_eq!("SELECT @param1,@param2,@param3 FROM Test", &s);
+}
+
+pub(crate) fn reduce<B, F, S>(
+    stream: S,
+    init: B,
+    mut next: F,
+) -> impl Future<Item = (S::State, B), Error = S::Error>
+where
+    F: FnMut(B, S::Item) -> Result<B, S::Error>,
+    S: StateStream,
+{
+    let r: Result<(Option<S::State>, B), S::Error> = Ok((None, init));
+
+    stream
+        .fold(
+            r,
+            move |r, item| {
+                Ok(match r {
+                    Ok((o, r)) => match next(r, item) {
+                        Ok(r) => Ok((o, r)),
+                        Err(e) => Err(e),
+                    },
+                    Err(e) => Err(e),
+                })
+            },
+            |r, state| {
+                Ok(match r {
+                    Ok((_, r)) => Ok((Some(state), r)),
+                    Err(e) => Err(e),
+                })
+            },
+        )
+        .and_then(|r| match r {
+            Ok((s, r)) => Ok((s.expect("State"), r)),
+            Err(e) => Err(e),
+        })
 }

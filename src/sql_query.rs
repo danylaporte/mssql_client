@@ -96,7 +96,7 @@ macro_rules! sql_query {
                 static ref SQL: String = sql_query!(delete from $t where ($($tf),+));
             }
 
-            $command.execute_params(&*SQL, ($($ef,)*))
+            $command.execute(&*SQL, ($($ef,)*))
         }
     };
     (_body $command:ident { insert into $t:ident ($($tf:ident=$ef:expr),+$(,)*) }) => {
@@ -105,7 +105,7 @@ macro_rules! sql_query {
                 static ref SQL: String = sql_query!(insert into $t ($($tf),+));
             }
 
-            $command.execute_params(&*SQL, ($($ef,)*))
+            $command.execute(&*SQL, ($($ef,)*))
         }
     };
     (_body $command:ident { merge into $t:ident set ($($tf:ident = $ef:expr),+$(,)*) where $(($tk:ident = $ek:expr)) and+ }) => {
@@ -114,7 +114,7 @@ macro_rules! sql_query {
                 static ref SQL: String = sql_query!(merge into $t set ($($tf),+) where ($($tk),+));
             }
 
-            $command.execute_params(&*SQL, ($($ek,)* $($ef,)*))
+            $command.execute(&*SQL, ($($ek,)* $($ef,)*))
         }
     };
     (_body $command:ident $o:ident { select ($($ts:ident as $fs:ident),+$(,)*) from $t:ident }) => {
@@ -137,7 +137,7 @@ macro_rules! sql_query {
                 })
             }
 
-            $command.query_with(SQL.as_str(), from_row)
+            $command.query_map(SQL.as_str(), (), from_row)
         }
     };
     (_body $command:ident $o:ident { select ($($ts:ident as $fs:ident),+$(,)*) from $t:ident where $(($tw:ident = $ew:ident)) and+ }) => {
@@ -158,7 +158,7 @@ macro_rules! sql_query {
                 })
             }
 
-            $command.query_params_with(&*SQL, ($($ew,)*), from_row)
+            $command.query_map(&*SQL, ($($ew,)*), from_row)
         }
     };
     (_body $command:ident { update $t:ident set ($($ts:ident=$es:expr),+$(,)*) where $(($tw:ident = $ew:expr)) and+ }) => {
@@ -167,7 +167,7 @@ macro_rules! sql_query {
                 static ref SQL: String = sql_query!(update $t set ($($ts),+) where ($($tw),+));
             }
 
-            $command.execute_params(&*SQL, ($($es,)* $($ew,)*))
+            $command.execute(&*SQL, ($($es,)* $($ew,)*))
         }
     };
     (fn $fn:ident($($row:ident: $e:ty),+$(,)*) { $($statement:tt)+ }) => {

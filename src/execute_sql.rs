@@ -45,7 +45,7 @@ macro_rules! execute_sql {
                 };
             }
 
-            $command.execute_params(&*SQL, ($($fvalue,)*))
+            $command.execute(&*SQL, ($($fvalue,)*))
         }
     };
 }
@@ -69,7 +69,7 @@ fn execute_works() {
     };
 
     let f = connection
-        .execute("CREATE TABLE #Temp (Id int, Name NVARCHAR(10))")
+        .execute("CREATE TABLE #Temp (Id int, Name NVARCHAR(10))", ())
         .and_then(|conn| {
             execute_sql!(
                 conn,
@@ -78,7 +78,7 @@ fn execute_works() {
                 name = account.name
             )
         })
-        .and_then(|conn| conn.query("SELECT * FROM #Temp"));
+        .and_then(|conn| conn.query("SELECT * FROM #Temp", ()));
 
     let rows: Vec<(i32, String)> = block_on_all(f).unwrap().1;
 

@@ -19,7 +19,6 @@ mod from_column;
 mod parameter;
 mod params;
 mod row;
-mod state_stream_ext;
 mod transaction;
 mod utils;
 
@@ -31,6 +30,5 @@ pub use self::from_row::FromRow;
 pub use self::parameter::Parameter;
 pub use self::params::*;
 pub use self::row::Row;
-pub(crate) use self::state_stream_ext::*;
 pub use self::transaction::Transaction;
 pub use self::utils::*;
