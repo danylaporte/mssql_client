@@ -1,4 +1,4 @@
-use crate::FromColumn;
+use crate::{FromColumn, SqlValue};
 use failure::Error;
 use tiberius::query::QueryRow;
 
@@ -13,6 +13,6 @@ impl Row {
     where
         R: FromColumn<'a>,
     {
-        R::from_column(self, idx)
+        R::from_column(<R::Value>::from_row(self, idx)?)
     }
 }

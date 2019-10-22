@@ -1,6 +1,6 @@
 [package]
 name = "mssql_client"
-version = "0.4.0"
+version = "0.5.0"
 authors = ["Dany Laporte <dany_laporte@hotmail.com>"]
 edition = "2018"
 
@@ -15,7 +15,7 @@ futures-state-stream = "0.1"
 lazy_static = "1.4"
 log = "0.4"
 tiberius = "0.3"
-uuid = { version = "0.7", features = [ "serde", "v4" ] }
+uuid = { version = "0.8", features = [ "serde", "v4" ] }
 
 [dev-dependencies]
 tokio = "0.1"
