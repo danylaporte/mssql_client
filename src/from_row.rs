@@ -8,7 +8,7 @@ pub trait FromRow {
         Self: Sized;
 }
 
-impl<A> FromRow for (A)
+impl<A> FromRow for A
 where
     A: for<'a> FromColumn<'a>,
 {
