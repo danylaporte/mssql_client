@@ -47,6 +47,14 @@ where
     fn params_null(_: &mut Vec<Parameter<'a>>) {}
 }
 
+impl<'a> Params<'a> for Parameter<'a> {
+    fn params(self, out: &mut Vec<Parameter<'a>>) {
+        out.push(self)
+    }
+
+    fn params_null(_: &mut Vec<Parameter<'a>>) {}
+}
+
 macro_rules! params {
     (tuple $($t:ident:$n:tt),+$(,)?) => {
         impl<'a, $($t),+> Params<'a> for ($($t,)+)
