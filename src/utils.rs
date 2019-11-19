@@ -1,7 +1,9 @@
 use conn_str::{append_key_value, MsSqlConnStr};
 use failure::{format_err, Error};
 use futures::Future;
+use futures03::compat::Future01CompatExt;
 use futures_state_stream::StateStream;
+use log::trace;
 use std::str::FromStr;
 
 pub(crate) fn adjust_conn_str(s: &str) -> Result<String, Error> {
@@ -235,22 +237,24 @@ fn replace_params_works() {
     assert_eq!("SELECT @param1,@param2,@param3 FROM Test", &s);
 }
 
-pub(crate) fn reduce<B, F, S>(
+pub(crate) async fn reduce<B, F, S>(
     stream: S,
     init: B,
     mut next: F,
-) -> impl Future<Item = (S::State, B), Error = S::Error>
+    log_sql: String,
+) -> Result<(S::State, B), Error>
 where
-    F: FnMut(B, S::Item) -> Result<B, S::Error>,
-    S: StateStream,
+    F: FnMut(B, S::Item) -> Result<B, Error>,
+    S: StateStream<Error = tiberius::Error>,
 {
-    let r: Result<(Option<S::State>, B), S::Error> = Ok((None, init));
+    let r = Result::<(Option<S::State>, B), Error>::Ok((None, init));
 
     stream
+        .map_err(|e| format_err!("Query failed. {:?}", e))
         .fold(
             r,
-            move |r, item| {
-                Ok(match r {
+            |r, item| {
+                Result::<_, Error>::Ok(match r {
                     Ok((o, r)) => match next(r, item) {
                         Ok(r) => Ok((o, r)),
                         Err(e) => Err(e),
@@ -259,7 +263,7 @@ where
                 })
             },
             |r, state| {
-                Ok(match r {
+                Result::<_, Error>::Ok(match r {
                     Ok((_, r)) => Ok((Some(state), r)),
                     Err(e) => Err(e),
                 })
@@ -268,5 +272,11 @@ where
         .and_then(|r| match r {
             Ok((s, r)) => Ok((s.expect("State"), r)),
             Err(e) => Err(e),
+        })
+        .compat()
+        .await
+        .map_err(|e| {
+            trace!("Query failed {}.", log_sql);
+            e
         })
 }

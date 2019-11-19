@@ -3,24 +3,19 @@
 /// # Example
 ///
 /// ```
-/// #[macro_use]
-/// extern crate mssql_client;
-/// extern crate tokio;
+/// use mssql_client::{execute_sql, Connection};
 ///
-/// use mssql_client::Connection;
-/// use futures::Future;
-/// use tokio::executor::current_thread::block_on_all;
+/// #[tokio::main]
+/// async fn main() -> Result<(), failure::Error> {
+///     let conn = Connection::from_env("MSSQL_DB").await?;
+///     let _conn = execute_sql!(conn, r#"
+///         DECLARE @value1 int = @id;
+///         DECLARE @value2 VARCHAR(20) = @name;"#,
+///         id = 55,
+///         name = "Foo"
+///     ).await?;
 ///
-/// fn main() {
-///     let f = Connection::from_env("MSSQL_DB")
-///         .and_then(|conn| execute_sql!(conn, r#"
-///             DECLARE @value1 int = @id;
-///             DECLARE @value2 VARCHAR(20) = @name;"#,
-///             id = 55,
-///             name = "Foo"
-///         ));
-///     
-///     block_on_all(f).unwrap();
+///     Ok(())
 /// }
 /// ```
 #[macro_export]
@@ -50,38 +45,40 @@ macro_rules! execute_sql {
     };
 }
 
-#[test]
-fn execute_works() {
-    use crate::Connection;
-    use futures::Future;
-    use tokio::executor::current_thread::block_on_all;
+#[cfg(test)]
+mod tests {
+    #[tokio::test]
+    async fn execute_works() -> Result<(), failure::Error> {
+        use crate::Connection;
 
-    struct Account<'a> {
-        name: &'a str,
-        id: i32,
+        struct Account<'a> {
+            name: &'a str,
+            id: i32,
+        }
+
+        let connection = Connection::from_env("MSSQL_DB").await?;
+
+        let account = Account {
+            name: "Foo",
+            id: 54,
+        };
+
+        let conn = connection
+            .execute("CREATE TABLE #Temp (Id int, Name NVARCHAR(10))", ())
+            .await?;
+
+        let conn = execute_sql!(
+            conn,
+            "INSERT #Temp (Id, Name) VALUES (@id, @name);",
+            id = account.id,
+            name = account.name
+        )
+        .await?;
+
+        let (_, rows): (_, Vec<(i32, String)>) = conn.query("SELECT * FROM #Temp", ()).await?;
+
+        assert_eq!(54, rows[0].0);
+        assert_eq!("Foo", &rows[0].1);
+        Ok(())
     }
-
-    let connection = block_on_all(Connection::from_env("MSSQL_DB")).unwrap();
-
-    let account = Account {
-        name: "Foo",
-        id: 54,
-    };
-
-    let f = connection
-        .execute("CREATE TABLE #Temp (Id int, Name NVARCHAR(10))", ())
-        .and_then(|conn| {
-            execute_sql!(
-                conn,
-                "INSERT #Temp (Id, Name) VALUES (@id, @name);",
-                id = account.id,
-                name = account.name
-            )
-        })
-        .and_then(|conn| conn.query("SELECT * FROM #Temp", ()));
-
-    let rows: Vec<(i32, String)> = block_on_all(f).unwrap().1;
-
-    assert_eq!(54, rows[0].0);
-    assert_eq!("Foo", &rows[0].1);
 }

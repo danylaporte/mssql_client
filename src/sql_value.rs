@@ -46,26 +46,26 @@ macro_rules! sql_value {
     };
 }
 
-sql_value!(&'a [u8], identity, v => v == "varbinary" || v == "binary" || v == "image");
-sql_value!(&'a str, identity, v => v == "nvarchar" ||
-        v == "varchar" ||
-        v == "ntext" ||
-        v == "text" ||
-        v == "nchar" ||
-        v == "char");
-sql_value!(Decimal, numeric_to_decimal, v => v == "decimal" || v == "numeric");
-sql_value!(NaiveDate, identity, v => v == "date");
-sql_value!(NaiveDateTime, identity, v => v == "datetime" || v == "datetime2" || v == "datetimeoffset");
-sql_value!(String, |v: &str| v.to_string(), v => <&str>::check_db_ty(v));
-sql_value!(Uuid, guid_to_uuid, v => v == "uniqueidentifier");
-sql_value!(Vec<u8>, |v: &[u8]| v.to_vec(), v => <&[u8]>::check_db_ty(v));
-sql_value!(bool, identity, v => v == "bit");
-sql_value!(f32, identity, v => v == "real" || v == "smallmoney");
-sql_value!(f64, identity, v => v == "float" || v == "money");
-sql_value!(i16, identity, v => v == "smallint");
-sql_value!(i32, identity, v => v == "int");
-sql_value!(i64, identity, v => v == "bigint");
-sql_value!(i8, identity, v => v == "tinyint");
+#[rustfmt::skip]
+mod m {
+    use super::*;
+
+    sql_value!(&'a [u8], identity, v => v == "varbinary" || v == "binary" || v == "image");
+    sql_value!(&'a str, identity, v => v == "nvarchar" || v == "varchar" || v == "ntext" || v == "text" || v == "nchar" || v == "char");
+    sql_value!(Decimal, numeric_to_decimal, v => v == "decimal" || v == "numeric");
+    sql_value!(NaiveDate, identity, v => v == "date");
+    sql_value!(NaiveDateTime, identity, v => v == "datetime" || v == "datetime2" || v == "datetimeoffset");
+    sql_value!(String, |v: &str| v.to_string(), v => <&str>::check_db_ty(v));
+    sql_value!(Uuid, guid_to_uuid, v => v == "uniqueidentifier");
+    sql_value!(Vec<u8>, |v: &[u8]| v.to_vec(), v => <&[u8]>::check_db_ty(v));
+    sql_value!(bool, identity, v => v == "bit");
+    sql_value!(f32, identity, v => v == "real" || v == "smallmoney");
+    sql_value!(f64, identity, v => v == "float" || v == "money");
+    sql_value!(i16, identity, v => v == "smallint");
+    sql_value!(i32, identity, v => v == "int");
+    sql_value!(i64, identity, v => v == "bigint");
+    sql_value!(i8, identity, v => v == "tinyint");
+}
 
 mod private {
     use decimal::Decimal;

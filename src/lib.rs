@@ -6,12 +6,6 @@ mod from_row;
 #[macro_use]
 mod execute_sql;
 
-#[macro_use]
-mod query_sql;
-
-#[macro_use]
-mod sql_query;
-
 mod command;
 mod connection;
 mod connection_factory;
@@ -23,14 +17,14 @@ mod sql_value;
 mod transaction;
 mod utils;
 
-pub use self::command::Command;
-pub use self::connection::Connection;
-pub use self::connection_factory::ConnectionFactory;
-pub use self::from_column::FromColumn;
-pub use self::from_row::FromRow;
-pub use self::parameter::Parameter;
-pub use self::params::*;
-pub use self::row::Row;
-pub use self::sql_value::SqlValue;
-pub use self::transaction::Transaction;
-pub use self::utils::*;
+pub use command::Command;
+pub use connection::Connection;
+pub use connection_factory::ConnectionFactory;
+pub use from_column::FromColumn;
+pub use from_row::FromRow;
+pub use parameter::Parameter;
+pub use params::*;
+pub use row::Row;
+pub use sql_value::SqlValue;
+pub use transaction::Transaction;
+pub use utils::*;

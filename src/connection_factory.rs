@@ -1,7 +1,6 @@
 use crate::Connection;
 use failure::{bail, Error};
-use futures::Future;
-use std::ffi::OsStr;
+use std::{ffi::OsStr, future::Future};
 
 /// Creates a database [Connection](struct.Connection.html) on demand.
 #[derive(Clone)]
@@ -14,13 +13,18 @@ impl ConnectionFactory {
     /// ```
     /// use mssql_client::ConnectionFactory;
     ///
-    /// let conn_str = "server=tcp:localhost\\SQL2017;database=Database1;integratedsecurity=sspi;trustservercertificate=true";
-    /// let connection_factory = ConnectionFactory::new(conn_str);
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), failure::Error> {
+    ///     let conn_str = "server=tcp:localhost\\SQL2017;database=master;integratedsecurity=sspi;trustservercertificate=true";
+    ///     let connection_factory = ConnectionFactory::new(conn_str);
     ///
-    /// // creates a connection from a ConnectionFactory
-    /// let connection = connection_factory.create_connection();
+    ///     // creates a connection from a ConnectionFactory
+    ///     let connection = connection_factory.create_connection().await?;
     ///
-    /// // do want you want with the connection ...
+    ///     // do want you want with the connection ...
+    ///
+    ///     Ok(())
+    /// }
     /// ```
     pub fn new<S>(s: S) -> Self
     where
@@ -35,13 +39,18 @@ impl ConnectionFactory {
     /// ```
     /// use mssql_client::ConnectionFactory;
     ///
-    /// let env_var = "MSSQL_DB";
-    /// let connection_factory = ConnectionFactory::from_env(env_var).unwrap();
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), failure::Error> {
+    ///     let env_var = "MSSQL_DB";
+    ///     let connection_factory = ConnectionFactory::from_env(env_var)?;
     ///
-    /// // creates a connection from a ConnectionFactory
-    /// let connection = connection_factory.create_connection();
+    ///     // creates a connection from a ConnectionFactory
+    ///     let connection = connection_factory.create_connection().await?;
     ///
-    /// // do want you want with the connection ...
+    ///     // do want you want with the connection ...
+    ///
+    ///     Ok(())    
+    /// }
     /// ```
     pub fn from_env<S>(key: S) -> Result<Self, Error>
     where
@@ -65,15 +74,20 @@ impl ConnectionFactory {
     /// ```
     /// use mssql_client::ConnectionFactory;
     ///
-    /// let env_var = "MSSQL_DB";
-    /// let connection_factory = ConnectionFactory::from_env(env_var).unwrap();
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), failure::Error> {
+    ///     let env_var = "MSSQL_DB";
+    ///     let connection_factory = ConnectionFactory::from_env(env_var).unwrap();
     ///
-    /// // creates a connection from a ConnectionFactory
-    /// let connection = connection_factory.create_connection();
+    ///     // creates a connection from a ConnectionFactory
+    ///     let connection = connection_factory.create_connection().await?;
     ///
-    /// // do want you want with the connection ...
+    ///     // do want you want with the connection ...
+    ///
+    ///     Ok(())    
+    /// }
     /// ```
-    pub fn create_connection(&self) -> impl Future<Item = Connection, Error = Error> {
+    pub fn create_connection(&self) -> impl Future<Output = Result<Connection, Error>> {
         Connection::connect(self.0.clone())
     }
 }

@@ -1,6 +1,6 @@
 use crate::{FromRow, Params, Row};
 use failure::Error;
-use futures::Future;
+use futures03::future::LocalBoxFuture;
 use std::borrow::Cow;
 
 pub trait Command {
@@ -10,41 +10,45 @@ pub trait Command {
     /// ```
     /// use futures::Future;
     /// use mssql_client::{Connection, Command};
-    /// use tokio::executor::current_thread::block_on_all;
     ///
-    /// let f = Connection::from_env("MSSQL_DB");
-    /// let f = f.and_then(|conn| Command::execute(conn, "DECLARE @i INT = @p1", 10));
-    /// let _ = block_on_all(f).unwrap();
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), failure::Error> {
+    ///     let conn = Connection::from_env("MSSQL_DB").await?;
+    ///     Command::execute(conn, "DECLARE @i INT = @p1", 10).await?;
+    ///     Ok(())
+    /// }
     /// ```
-    fn execute<'a, S, P>(self, sql: S, params: P) -> Box<dyn Future<Item = Self, Error = Error>>
+    fn execute<'a, S, P>(self, sql: S, params: P) -> LocalBoxFuture<'a, Result<Self, Error>>
     where
-        P: Params<'a>,
-        S: Into<Cow<'static, str>>;
+        P: Params<'a> + 'a,
+        S: Into<Cow<'static, str>> + 'a,
+        Self: Sized;
 
     /// Query the database and reads all rows.
     ///
     /// # Example
     /// ```
-    /// use futures::Future;
     /// use mssql_client::{Connection, Command};
-    /// use tokio::executor::current_thread::block_on_all;
     ///
-    /// let f = Connection::from_env("MSSQL_DB");
-    /// let f = f.and_then(|conn| Command::query(conn, "SELECT @p1 + 2", 10));
-    /// let (_, rows) = block_on_all(f).unwrap();
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), failure::Error> {
+    ///     let conn = Connection::from_env("MSSQL_DB").await?;
+    ///     let (_, rows) = Command::query(conn, "SELECT @p1 + 2", 10).await?;
     ///
-    /// assert_eq!(12, rows[0]);
+    ///     assert_eq!(12, rows[0]);
+    ///     Ok(())
+    /// }
     /// ```
     fn query<'a, T, S, P>(
         self,
         sql: S,
         params: P,
-    ) -> Box<dyn Future<Item = (Self, Vec<T>), Error = Error>>
+    ) -> LocalBoxFuture<'a, Result<(Self, Vec<T>), Error>>
     where
-        S: Into<Cow<'static, str>>,
-        T: FromRow + 'static,
-        P: Params<'a>,
+        P: Params<'a> + 'a,
+        S: Into<Cow<'static, str>> + 'a,
         Self: Sized,
+        T: FromRow + 'a,
     {
         self.query_fold(sql, params, Vec::new(), |mut vec, r| {
             vec.push(T::from_row(r)?);
@@ -56,35 +60,35 @@ pub trait Command {
     ///
     /// # Example
     /// ```
-    /// use futures::Future;
     /// use mssql_client::{Connection, Command};
-    /// use tokio::executor::current_thread::block_on_all;
     ///
-    /// let f = Connection::from_env("MSSQL_DB");
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), failure::Error> {
+    ///     let conn = Connection::from_env("MSSQL_DB").await?;
     ///
-    /// let f = f.and_then(|conn| Command::query_map(
-    ///     conn,
-    ///     "SELECT @p1 + 2",
-    ///     10,
-    ///     |row| row.get(0),
-    /// ));
+    ///     let (_, rows) = Command::query_map(
+    ///         conn,
+    ///         "SELECT @p1 + 2",
+    ///         10,
+    ///         |row| row.get(0),
+    ///     ).await?;
     ///
-    /// let (_, rows) = block_on_all(f).unwrap();
-    ///
-    /// assert_eq!(12, rows[0]);
+    ///     assert_eq!(12, rows[0]);
+    ///     Ok(())
+    /// }
     /// ```
     fn query_map<'a, T, S, P, F>(
         self,
         sql: S,
         params: P,
         mut func: F,
-    ) -> Box<dyn Future<Item = (Self, Vec<T>), Error = Error>>
+    ) -> LocalBoxFuture<'a, Result<(Self, Vec<T>), Error>>
     where
-        F: FnMut(&Row) -> Result<T, Error> + 'static,
-        S: Into<Cow<'static, str>>,
-        P: Params<'a>,
-        T: 'static,
+        F: FnMut(&Row) -> Result<T, Error> + 'a,
+        P: Params<'a> + 'a,
+        S: Into<Cow<'static, str>> + 'a,
         Self: Sized,
+        T: 'a,
     {
         self.query_fold(sql, params, Vec::new(), move |mut vec, r| {
             vec.push(func(r)?);
@@ -98,33 +102,28 @@ pub trait Command {
         params: P,
         init: T,
         func: F,
-    ) -> Box<dyn Future<Item = (Self, T), Error = Error>>
+    ) -> LocalBoxFuture<'a, Result<(Self, T), Error>>
     where
-        F: FnMut(T, &Row) -> Result<T, Error> + 'static,
-        P: Params<'a>,
-        S: Into<Cow<'static, str>>,
+        F: FnMut(T, &Row) -> Result<T, Error> + 'a,
+        P: Params<'a> + 'a,
+        S: Into<Cow<'static, str>> + 'a,
         Self: Sized,
-        T: 'static;
+        T: 'a;
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::Connection;
-    use tokio::executor::current_thread::block_on_all;
     use uuid::Uuid;
 
-    #[test]
-    fn execute_params() {
-        fn exec<'a, C, S, P>(
-            c: C,
-            sql: S,
-            params: P,
-        ) -> Box<dyn Future<Item = C, Error = Error> + 'a>
+    #[tokio::test]
+    async fn execute_params() -> Result<(), Error> {
+        fn exec<'a, C, S, P>(c: C, sql: S, params: P) -> LocalBoxFuture<'a, Result<C, Error>>
         where
             C: Command + 'a,
-            S: Into<Cow<'static, str>>,
-            P: Params<'a>,
+            S: Into<Cow<'static, str>> + 'a,
+            P: Params<'a> + 'a,
         {
             c.execute(sql, params)
         }
@@ -132,6 +131,9 @@ mod tests {
         let s = "DECLARE @a UNIQUEIDENTIFIER = @p1".to_owned();
         let id = &Uuid::nil();
 
-        block_on_all(Connection::from_env("MSSQL_DB").and_then(|conn| exec(conn, s, id))).unwrap();
+        let conn = Connection::from_env("MSSQL_DB").await?;
+        exec(conn, s, id).await?;
+
+        Ok(())
     }
 }

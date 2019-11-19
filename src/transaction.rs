@@ -1,21 +1,19 @@
 use crate::{utils::reduce, Command, Connection, FromRow, Params, Row};
 use failure::{format_err, Error};
-use futures::future::{Either, Future};
-use futures_state_stream::StateStream;
+use futures03::{compat::Future01CompatExt, future::LocalBoxFuture};
 use log::{debug, error, trace};
-use std::borrow::Cow;
-use std::time::Instant;
+use std::{borrow::Cow, time::Instant};
 use tiberius::{BoxableIo, Transaction as SqlTransaction};
 
 pub struct Transaction(pub(super) SqlTransaction<Box<dyn BoxableIo>>);
 
 impl Command for Transaction {
-    fn execute<'a, S, P>(self, sql: S, params: P) -> Box<dyn Future<Item = Self, Error = Error>>
+    fn execute<'a, S, P>(self, sql: S, params: P) -> LocalBoxFuture<'a, Result<Self, Error>>
     where
-        P: Params<'a>,
-        S: Into<Cow<'static, str>>,
+        P: Params<'a> + 'a,
+        S: Into<Cow<'static, str>> + 'a,
     {
-        Box::new(self.execute(sql, params))
+        self.execute(sql, params)
     }
 
     fn query_fold<'a, T, S, P, F>(
@@ -24,71 +22,69 @@ impl Command for Transaction {
         params: P,
         init: T,
         func: F,
-    ) -> Box<dyn Future<Item = (Self, T), Error = Error>>
+    ) -> LocalBoxFuture<'a, Result<(Self, T), Error>>
     where
-        F: FnMut(T, &Row) -> Result<T, Error> + 'static,
-        P: Params<'a>,
-        S: Into<Cow<'static, str>>,
+        F: FnMut(T, &Row) -> Result<T, Error> + 'a,
+        P: Params<'a> + 'a,
+        S: Into<Cow<'static, str>> + 'a,
+        T: 'a,
         Self: Sized,
-        T: 'static,
     {
-        Box::new(self.query_fold(sql, params, init, func))
+        self.query_fold(sql, params, init, func)
     }
 }
 
 impl Transaction {
-    pub fn commit(self) -> impl Future<Item = Connection, Error = Error> {
+    pub async fn commit(self) -> Result<Connection, Error> {
         trace!("Committing transaction...");
         let start = Instant::now();
 
-        self.0
-            .commit()
-            .map(move |c| {
-                trace!(
-                    "Transaction committed in {}ms.",
-                    (Instant::now() - start).as_millis(),
-                );
-                Connection(c)
-            })
-            .map_err(|e| {
-                let e = format_err!("Transaction commit failed. {:?}", e);
-                error!("{}", e);
-                e
-            })
+        let c = self.0.commit().compat().await.map_err(|e| {
+            let e = format_err!("Transaction commit failed. {:?}", e);
+            error!("{}", e);
+            e
+        })?;
+
+        trace!(
+            "Transaction committed in {}ms.",
+            (Instant::now() - start).as_millis(),
+        );
+
+        Ok(Connection(c))
     }
 
-    pub fn execute<'a, S, P>(self, sql: S, params: P) -> Box<dyn Future<Item = Self, Error = Error>>
+    pub fn execute<'a, S, P>(self, sql: S, params: P) -> LocalBoxFuture<'a, Result<Self, Error>>
     where
-        S: Into<Cow<'static, str>>,
-        P: Params<'a>,
+        P: Params<'a> + 'a,
+        S: Into<Cow<'static, str>> + 'a,
     {
-        let mut p = Vec::new();
-        params.params(&mut p);
+        Box::pin(async {
+            let mut p = Vec::new();
+            params.params(&mut p);
 
-        let sql = sql.into();
-        let log_sql = format!("{:?}\nParams: {:#?}", sql, p);
-        let start = Instant::now();
+            let sql = sql.into();
+            let log_sql = format!("{:?}\nParams: {:#?}", sql, p);
+            let start = Instant::now();
 
-        trace!("Executing {}", log_sql);
+            trace!("Executing {}", log_sql);
 
-        let map_err = move |e| {
-            debug!("Execute failed {}.", log_sql);
-            format_err!("Execute failed. {:?}", e)
-        };
+            let (_affected_rows, t) = if p.is_empty() {
+                self.0.simple_exec(sql).compat().await
+            } else {
+                let params = p.iter().map(|p| p.into()).collect::<Vec<_>>();
+                self.0.exec(sql, &params).compat().await
+            }
+            .map_err(move |e| {
+                debug!("Execute failed {}.", log_sql);
+                format_err!("Execute failed. {:?}", e)
+            })?;
 
-        let map_ok = move |(_, c)| {
             trace!(
                 "Execute executed in {}ms.",
                 (Instant::now() - start).as_millis(),
             );
-            Transaction(c)
-        };
 
-        Box::new(if p.is_empty() {
-            Either::A(self.0.simple_exec(sql).map_err(map_err).map(map_ok))
-        } else {
-            let params = p.iter().map(|p| p.into()).collect::<Vec<_>>();
-            Either::B(self.0.exec(sql, &params).map_err(map_err).map(map_ok))
+            Ok(Self(t))
         })
     }
 
@@ -96,11 +92,11 @@ impl Transaction {
         self,
         sql: S,
         params: P,
-    ) -> Box<dyn Future<Item = (Self, Vec<T>), Error = Error>>
+    ) -> LocalBoxFuture<'a, Result<(Self, Vec<T>), Error>>
     where
-        S: Into<Cow<'static, str>>,
-        T: FromRow + 'static,
-        P: Params<'a>,
+        P: Params<'a> + 'a,
+        S: Into<Cow<'static, str>> + 'a,
+        T: FromRow + 'a,
     {
         self.query_map(sql, params, FromRow::from_row)
     }
@@ -111,53 +107,44 @@ impl Transaction {
         params: P,
         init: T,
         mut func: F,
-    ) -> Box<dyn Future<Item = (Self, T), Error = Error>>
+    ) -> LocalBoxFuture<'a, Result<(Self, T), Error>>
     where
-        F: FnMut(T, &Row) -> Result<T, Error> + 'static,
-        S: Into<Cow<'static, str>>,
-        P: Params<'a>,
-        T: 'static,
+        F: FnMut(T, &Row) -> Result<T, Error> + 'a,
+        P: Params<'a> + 'a,
+        S: Into<Cow<'static, str>> + 'a,
+        T: 'a,
     {
-        let mut p = Vec::new();
-        params.params(&mut p);
+        Box::pin(async {
+            let mut p = Vec::new();
+            params.params(&mut p);
 
-        let sql = sql.into();
-        let log_sql = format!("{:?}\nParams: {:#?}", sql, p);
-        let start = Instant::now();
+            let sql = sql.into();
+            let log_sql = format!("{:?}\nParams: {:#?}", sql, p);
+            let start = Instant::now();
 
-        trace!("Querying {}", log_sql);
+            trace!("Querying {}", log_sql);
 
-        let map_err = |e| format_err!("Query failed. {:?}", e);
+            let next = move |r, row| match func(r, &Row(row)) {
+                Ok(v) => Ok(v),
+                Err(e) => Err(format_err!("Row conversion failed. {}", e)),
+            };
 
-        let next = move |r, row| match func(r, &Row(row)) {
-            Ok(v) => Ok(v),
-            Err(e) => Err(format_err!("Row conversion failed. {}", e)),
-        };
+            let (t, rows) = if p.is_empty() {
+                let stream = self.0.simple_query(sql);
+                reduce(stream, init, next, log_sql).await?
+            } else {
+                let params = p.iter().map(|p| p.into()).collect::<Vec<_>>();
+                let stream = self.0.query(sql, &params);
+                reduce(stream, init, next, log_sql).await?
+            };
 
-        let fut = if p.is_empty() {
-            let stream = self.0.simple_query(sql).map_err(map_err);
-            Either::A(reduce(stream, init, next))
-        } else {
-            let params = p.iter().map(|p| p.into()).collect::<Vec<_>>();
-            let stream = self.0.query(sql, &params).map_err(map_err);
+            trace!(
+                "Query executed in {}ms.",
+                (Instant::now() - start).as_millis(),
+            );
 
-            Either::B(reduce(stream, init, next))
-        };
-
-        Box::new(
-            fut.map(move |(c, r)| {
-                trace!(
-                    "Query executed in {}ms.",
-                    (Instant::now() - start).as_millis(),
-                );
-
-                (Transaction(c), r)
-            })
-            .map_err(move |e| {
-                trace!("Query failed {}.", log_sql);
-                e
-            }),
-        )
+            Ok((Self(t), rows))
+        })
     }
 
     pub fn query_map<'a, T, S, P, F>(
@@ -165,12 +152,12 @@ impl Transaction {
         sql: S,
         params: P,
         mut func: F,
-    ) -> Box<dyn Future<Item = (Self, Vec<T>), Error = Error>>
+    ) -> LocalBoxFuture<'a, Result<(Self, Vec<T>), Error>>
     where
-        F: FnMut(&Row) -> Result<T, Error> + 'static,
-        S: Into<Cow<'static, str>>,
-        P: Params<'a>,
-        T: 'static,
+        F: FnMut(&Row) -> Result<T, Error> + 'a,
+        P: Params<'a> + 'a,
+        S: Into<Cow<'static, str>> + 'a,
+        T: 'a,
     {
         self.query_fold(sql, params, Vec::new(), move |mut vec, row| {
             vec.push(func(row)?);
@@ -178,69 +165,87 @@ impl Transaction {
         })
     }
 
-    pub fn rollback(self) -> impl Future<Item = Connection, Error = Error> {
+    pub async fn rollback(self) -> Result<Connection, Error> {
         trace!("Transaction rollback...");
         let start = Instant::now();
 
-        self.0
-            .rollback()
-            .map(move |c| {
-                trace!(
-                    "Transaction rollback successful in {}ms.",
-                    (Instant::now() - start).as_millis(),
-                );
-                Connection(c)
-            })
-            .map_err(|e| {
-                let e = format_err!("Rollback failed.{:?}", e);
-                error!("{}", e);
-                e
-            })
+        let c = self.0.rollback().compat().await.map_err(|e| {
+            let e = format_err!("Rollback failed.{:?}", e);
+            error!("{}", e);
+            e
+        })?;
+
+        trace!(
+            "Transaction rollback successful in {}ms.",
+            (Instant::now() - start).as_millis(),
+        );
+
+        Ok(Connection(c))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::executor::current_thread::block_on_all;
 
-    #[test]
-    fn commit() {
-        let connection = block_on_all(Connection::from_env("MSSQL_DB")).unwrap();
-        let transaction = block_on_all(connection.transaction()).unwrap();
-        let _connection = block_on_all(transaction.commit()).unwrap();
+    #[tokio::test]
+    async fn commit() -> Result<(), failure::Error> {
+        Connection::from_env("MSSQL_DB")
+            .await?
+            .transaction()
+            .await?
+            .commit()
+            .await?;
+
+        Ok(())
     }
 
-    #[test]
-    fn execute() {
-        let connection = block_on_all(Connection::from_env("MSSQL_DB")).unwrap();
-        let transaction = block_on_all(connection.transaction()).unwrap();
-        let _transaction = block_on_all(transaction.execute("DECLARE @a INT = 0", ())).unwrap();
+    #[tokio::test]
+    async fn execute() -> Result<(), failure::Error> {
+        Connection::from_env("MSSQL_DB")
+            .await?
+            .transaction()
+            .await?
+            .execute("DECLARE @a INT = 0", ())
+            .await?;
+
+        Ok(())
     }
 
-    #[test]
-    fn execute_params() {
-        block_on_all(
-            Connection::from_env("MSSQL_DB")
-                .and_then(Connection::transaction)
-                .and_then(|t| t.execute("DECLARE @a INT = @p1", 10)),
-        )
-        .unwrap();
+    #[tokio::test]
+    async fn execute_params() -> Result<(), failure::Error> {
+        Connection::from_env("MSSQL_DB")
+            .await?
+            .transaction()
+            .await?
+            .execute("DECLARE @a INT = @p1", 10)
+            .await?;
+
+        Ok(())
     }
 
-    #[test]
-    fn query() {
-        let connection = block_on_all(Connection::from_env("MSSQL_DB")).unwrap();
-        let transaction = block_on_all(connection.transaction()).unwrap();
-        let (_transaction, rows) = block_on_all(transaction.query("SELECT 5", ())).unwrap();
+    #[tokio::test]
+    async fn query() -> Result<(), failure::Error> {
+        let (_, rows) = Connection::from_env("MSSQL_DB")
+            .await?
+            .transaction()
+            .await?
+            .query("SELECT 5", ())
+            .await?;
 
         assert_eq!(5, rows[0]);
+        Ok(())
     }
 
-    #[test]
-    fn rollback() {
-        let connection = block_on_all(Connection::from_env("MSSQL_DB")).unwrap();
-        let transaction = block_on_all(connection.transaction()).unwrap();
-        let _connection = block_on_all(transaction.rollback()).unwrap();
+    #[tokio::test]
+    async fn rollback() -> Result<(), failure::Error> {
+        Connection::from_env("MSSQL_DB")
+            .await?
+            .transaction()
+            .await?
+            .rollback()
+            .await?;
+
+        Ok(())
     }
 }
