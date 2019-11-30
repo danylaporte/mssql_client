@@ -5,7 +5,7 @@ use crate::{
 use failure::{format_err, Error};
 use futures03::{compat::Future01CompatExt, future::LocalBoxFuture};
 use log::{debug, error, trace};
-use std::{borrow::Cow, env::var, ffi::OsStr, mem::drop, time::Instant};
+use std::{borrow::Cow, env::var, ffi::OsStr, time::Instant};
 use tiberius::{BoxableIo, SqlConnection};
 
 /// A database connection.
@@ -71,7 +71,27 @@ impl Connection {
         S: Into<String>,
     {
         let conn_str = adjust_conn_str(&conn_str.into())?;
-        conn_arch(conn_str).await
+
+        trace!("Connecting to db...");
+
+        let start = Instant::now();
+
+        let c = SqlConnection::connect(&conn_str)
+            .compat()
+            .await
+            .map_err(|e| {
+                let e = format_err!("Failed connecting to db. {:?}", e);
+                error!("{}", e);
+                debug!("Failed connection string: {}", conn_str);
+                e
+            })?;
+
+        trace!(
+            "Connected to db in {}ms.",
+            (Instant::now() - start).as_millis(),
+        );
+
+        Ok(Connection(c))
     }
 
     /// Creates a connection that will connect to the database specified in the environment variable.
@@ -268,68 +288,6 @@ impl Connection {
 
         Ok(Transaction(t))
     }
-}
-
-#[cfg(windows)]
-async fn conn_arch(conn_str: String) -> Result<Connection, Error> {
-    use once_cell::sync::Lazy;
-    use tokio::sync::Mutex;
-
-    static GATE: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
-
-    // Lock while establishing a sql connection (only one call at a time)
-    // This prevent a dead lock / timeout in the windows CertGetCertificateChain function.
-
-    trace!("acquiring connection lock.");
-
-    let lock = GATE.lock().await;
-
-    trace!("connection lock acquired.");
-    trace!("Connecting to db...");
-
-    let start = Instant::now();
-
-    let c = SqlConnection::connect(&conn_str)
-        .compat()
-        .await
-        .map_err(|e| {
-            let e = format_err!("Failed connecting to db. {:?}", e);
-            error!("{}", e);
-            debug!("Failed connection string: {}", conn_str);
-            e
-        })?;
-
-    drop(lock);
-
-    trace!(
-        "Connected to db in {}ms.",
-        (Instant::now() - start).as_millis(),
-    );
-
-    Ok(Connection(c))
-}
-
-#[cfg(not(windows))]
-async fn conn_arch(conn_str: String) -> Result<Connection, Error> {
-    trace!("Connecting to db...");
-    let start = Instant::now();
-
-    let c = SqlConnection::connect(&conn_str)
-        .compat()
-        .await
-        .map_err(|e| {
-            let e = format_err!("Failed connecting to db. {:?}", e);
-            error!("{}", e);
-            debug!("Failed connection string: {}", conn_str);
-            e
-        })?;
-
-    trace!(
-        "Connected to db in {}ms.",
-        (Instant::now() - start).as_millis(),
-    );
-
-    Ok(Connection(c))
 }
 
 #[cfg(test)]
