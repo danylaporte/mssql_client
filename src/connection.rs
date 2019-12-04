@@ -2,7 +2,7 @@ use crate::{
     utils::{adjust_conn_str, reduce},
     Command, FromRow, Params, Row, Transaction,
 };
-use failure::{format_err, Error};
+use failure::{format_err, Error, ResultExt};
 use futures03::{compat::Future01CompatExt, future::LocalBoxFuture};
 use log::{debug, error, trace};
 use std::{borrow::Cow, env::var, ffi::OsStr, time::Instant};
@@ -222,10 +222,7 @@ impl Connection {
 
             trace!("Querying {}", log_sql);
 
-            let next = move |r, row| match func(r, &Row(row)) {
-                Ok(v) => Ok(v),
-                Err(e) => Err(format_err!("Row conversion failed. {}", e)),
-            };
+            let next = move |r, row| Ok(func(r, &Row(row)).context("Row conversion failed")?);
 
             let (conn, rows) = if p.is_empty() {
                 let stream = self.0.simple_query(sql);
