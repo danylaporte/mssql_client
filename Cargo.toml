@@ -1,6 +1,6 @@
 [package]
 name = "mssql_client"
-version = "0.7.2"
+version = "0.7.3"
 authors = ["Dany Laporte <dany_laporte@hotmail.com>"]
 edition = "2018"
 
@@ -14,7 +14,7 @@ futures-state-stream = "0.1"
 futures03 = { package = "futures", version = "0.3", features = ["compat"] }
 lazy_static = "1.4"
 log = "0.4"
-tiberius = { git = "https://github.com/steffengy/tiberius.git" }
+tiberius = { git = "https://github.com/danylaporte/tiberius.git" }
 uuid = { version = "0.8", features = [ "v4" ] }
 
 [dev-dependencies]
