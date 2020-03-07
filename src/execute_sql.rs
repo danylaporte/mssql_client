@@ -22,25 +22,23 @@
 macro_rules! execute_sql {
     ($command:expr, $sql:expr, $($fname:ident = $fvalue:expr),* $(,)*) => {
         {
-            $crate::lazy_static::lazy_static! {
-                static ref SQL: String = {
-                    let sql: &'static str = $sql;
-                    let mut sql = sql.to_owned();
-                    let mut i = 1;
+            let sql = {
+                let sql: &'static str = $sql;
+                let mut sql = sql.to_owned();
+                let mut i = 1;
 
-                    $(
-                        $crate::replace_params(&mut sql, stringify!($fname), &format!("P{}", i));
-                        #[allow(unused_assignments)]
-                        {
-                            i += 1;
-                        }
-                    )*
+                $(
+                    $crate::replace_params(&mut sql, stringify!($fname), &format!("P{}", i));
+                    #[allow(unused_assignments)]
+                    {
+                        i += 1;
+                    }
+                )*
 
-                    sql
-                };
-            }
+                sql
+            };
 
-            $command.execute(&*SQL, ($($fvalue,)*))
+            $command.execute(sql, ($($fvalue,)*))
         }
     };
 }

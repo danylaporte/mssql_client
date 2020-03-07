@@ -1,5 +1,3 @@
-pub extern crate lazy_static;
-
 #[macro_use]
 mod from_row;
 

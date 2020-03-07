@@ -1,6 +1,6 @@
 [package]
 name = "mssql_client"
-version = "0.7.3"
+version = "0.8.0"
 authors = ["Dany Laporte <dany_laporte@hotmail.com>"]
 edition = "2018"
 
@@ -12,10 +12,10 @@ failure = "0.1"
 futures = "0.1"
 futures-state-stream = "0.1"
 futures03 = { package = "futures", version = "0.3", features = ["compat"] }
-lazy_static = "1.4"
 log = "0.4"
+once_cell = "1.3"
 tiberius = { git = "https://github.com/danylaporte/tiberius.git" }
+tokio = { version = "0.2", features = ["macros", "rt-core", "sync"] }
 uuid = { version = "0.8", features = [ "v4" ] }
 
 [dev-dependencies]
-tokio = { version = "0.2", features = ["macros", "rt-core"] }

@@ -76,15 +76,12 @@ impl Connection {
 
         let start = Instant::now();
 
-        let c = SqlConnection::connect(&conn_str)
-            .compat()
-            .await
-            .map_err(|e| {
-                let e = format_err!("Failed connecting to db. {:?}", e);
-                error!("{}", e);
-                debug!("Failed connection string: {}", conn_str);
-                e
-            })?;
+        let c = connect(&conn_str).await.map_err(|e| {
+            let e = format_err!("Failed connecting to db. {:?}", e);
+            error!("{}", e);
+            debug!("Failed connection string: {}", conn_str);
+            e
+        })?;
 
         trace!(
             "Connected to db in {}ms.",
@@ -285,6 +282,32 @@ impl Connection {
 
         Ok(Transaction(t))
     }
+}
+
+#[cfg(target_os = "windows")]
+#[inline]
+async fn connect(conn_str: &str) -> Result<SqlConnection<Box<dyn BoxableIo>>, tiberius::Error> {
+    use once_cell::sync::OnceCell;
+    use tokio::sync::Mutex;
+
+    static ONE: OnceCell<Mutex<()>> = OnceCell::new();
+
+    ONE.get_or_init(|| Mutex::new(())).lock().await;
+
+    SqlConnection::connect(conn_str).compat().await
+}
+
+#[cfg(not(target_os = "windows"))]
+#[inline]
+async fn connect(conn_str: &str) -> Result<SqlConnection<Box<dyn BoxableIo>>, tiberius::Error> {
+    use once_cell::sync::OnceCell;
+    use tokio::sync::Mutex;
+
+    static ONE: OnceCell<Mutex<()>> = OnceCell::new();
+
+    ONE.get_or_init(|| Mutex::new(())).lock().await;
+
+    SqlConnection::connect(conn_str).compat().await
 }
 
 #[cfg(test)]
