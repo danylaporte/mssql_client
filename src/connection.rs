@@ -269,7 +269,8 @@ impl Connection {
         let (_, t) = self
             .0
             .transaction()
-            .and_then(|t| t.simple_exec("BEGIN TRANSACTION"))
+            .and_then(|t| t.simple_exec("set implicit_transactions off"))
+            .and_then(|(_, t)| t.simple_exec("BEGIN TRANSACTION"))
             .compat()
             .await
             .map_err(|e| {
