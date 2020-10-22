@@ -1,5 +1,4 @@
-use crate::Connection;
-use failure::{bail, Error};
+use crate::{Connection, Result};
 use std::{ffi::OsStr, future::Future};
 
 /// Creates a database [Connection](struct.Connection.html) on demand.
@@ -11,10 +10,10 @@ impl ConnectionFactory {
     ///
     /// # Example
     /// ```
-    /// use mssql_client::ConnectionFactory;
+    /// use mssql_client::{ConnectionFactory, Result};
     ///
     /// #[tokio::main]
-    /// async fn main() -> Result<(), failure::Error> {
+    /// async fn main() -> Result<()> {
     ///     let conn_str = "server=tcp:localhost\\SQL2017;database=master;integratedsecurity=sspi;trustservercertificate=true";
     ///     let connection_factory = ConnectionFactory::new(conn_str);
     ///
@@ -37,10 +36,10 @@ impl ConnectionFactory {
     ///
     /// # Example
     /// ```
-    /// use mssql_client::ConnectionFactory;
+    /// use mssql_client::{ConnectionFactory, Result};
     ///
     /// #[tokio::main]
-    /// async fn main() -> Result<(), failure::Error> {
+    /// async fn main() -> Result<()> {
     ///     let env_var = "MSSQL_DB";
     ///     let connection_factory = ConnectionFactory::from_env(env_var)?;
     ///
@@ -52,30 +51,22 @@ impl ConnectionFactory {
     ///     Ok(())    
     /// }
     /// ```
-    pub fn from_env<S>(key: S) -> Result<Self, Error>
+    pub fn from_env<S>(key: S) -> Result<Self>
     where
         S: AsRef<OsStr>,
     {
         let key = key.as_ref();
-
-        match ::std::env::var(key) {
-            Ok(s) => Ok(ConnectionFactory::from(s)),
-            Err(e) => bail!(
-                "ConnectionFactory from env variable {:#?} failed. {}",
-                key,
-                e
-            ),
-        }
+        Ok(ConnectionFactory::from(std::env::var(key)?))
     }
 
     /// Creates an instance of a [Connection](struct.Connection.html)
     ///
     /// # Example
     /// ```
-    /// use mssql_client::ConnectionFactory;
+    /// use mssql_client::{ConnectionFactory, Result};
     ///
     /// #[tokio::main]
-    /// async fn main() -> Result<(), failure::Error> {
+    /// async fn main() -> Result<()> {
     ///     let env_var = "MSSQL_DB";
     ///     let connection_factory = ConnectionFactory::from_env(env_var).unwrap();
     ///
@@ -87,7 +78,7 @@ impl ConnectionFactory {
     ///     Ok(())    
     /// }
     /// ```
-    pub fn create_connection(&self) -> impl Future<Output = Result<Connection, Error>> {
+    pub fn create_connection(&self) -> impl Future<Output = Result<Connection>> {
         Connection::connect(self.0.clone())
     }
 }

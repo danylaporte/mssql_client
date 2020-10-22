@@ -1,10 +1,10 @@
+use crate::Error;
 use conn_str::{append_key_value, MsSqlConnStr};
-use failure::{format_err, Error};
 use futures::Future;
 use futures03::compat::Future01CompatExt;
 use futures_state_stream::StateStream;
-use log::trace;
 use std::str::FromStr;
+use tracing::instrument;
 
 pub(crate) fn adjust_conn_str(s: &str) -> Result<String, Error> {
     let conn = MsSqlConnStr::from_str(s)?;
@@ -12,7 +12,7 @@ pub(crate) fn adjust_conn_str(s: &str) -> Result<String, Error> {
     let datasource = conn
         .data_source()
         .filter(|s| !s.trim().is_empty())
-        .ok_or_else(|| format_err!("data source / server not specified in connection string."))?;
+        .ok_or(Error::DataSourceNotSpecified)?;
 
     let datasource = resolve_datasource_into_ip(datasource)?;
     let mut out = String::new();
@@ -100,11 +100,12 @@ fn resolve_datasource_into_ip(s: &str) -> Result<String, Error> {
         }
     }
 
-    log::trace!(
+    tracing::trace!(
         "resolved server connection string from `{}` to `{}`",
         s,
         out
     );
+
     Ok(out)
 }
 
@@ -158,12 +159,9 @@ fn resolve(mut host: &str) -> Result<String, Error> {
         }
     }
 
-    let socket_address = ipv4.or(ipv6);
-
-    if let Some(socket_address) = socket_address {
-        Ok(socket_address.ip().to_string())
-    } else {
-        Err(format_err!("Host {} not found.", host))
+    match ipv4.or(ipv6) {
+        Some(addr) => Ok(addr.ip().to_string()),
+        None => Err(Error::HostNotFound(host.to_string())),
     }
 }
 
@@ -237,12 +235,8 @@ fn replace_params_works() {
     assert_eq!("SELECT @param1,@param2,@param3 FROM Test", &s);
 }
 
-pub(crate) async fn reduce<B, F, S>(
-    stream: S,
-    init: B,
-    mut next: F,
-    log_sql: String,
-) -> Result<(S::State, B), Error>
+#[instrument(level = "trace", skip(stream, init, next))]
+pub(crate) async fn reduce<B, F, S>(stream: S, init: B, mut next: F) -> Result<(S::State, B), Error>
 where
     F: FnMut(B, S::Item) -> Result<B, Error>,
     S: StateStream<Error = tiberius::Error>,
@@ -250,15 +244,12 @@ where
     let r = Result::<(Option<S::State>, B), Error>::Ok((None, init));
 
     stream
-        .map_err(|e| format_err!("Query failed. {:?}", e))
+        .map_err(Error::Tiberius)
         .fold(
             r,
             |r, item| {
                 Result::<_, Error>::Ok(match r {
-                    Ok((o, r)) => match next(r, item) {
-                        Ok(r) => Ok((o, r)),
-                        Err(e) => Err(e),
-                    },
+                    Ok((o, r)) => next(r, item).map(|r| (o, r)),
                     Err(e) => Err(e),
                 })
             },
@@ -269,14 +260,7 @@ where
                 })
             },
         )
-        .and_then(|r| match r {
-            Ok((s, r)) => Ok((s.expect("State"), r)),
-            Err(e) => Err(e),
-        })
+        .and_then(|r| r.map(|(s, r)| (s.expect("State"), r)))
         .compat()
         .await
-        .map_err(|e| {
-            trace!("Query failed {}.", log_sql);
-            e
-        })
 }

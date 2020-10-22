@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use crate::Parameter;
 use chrono::{NaiveDate, NaiveDateTime};
 use decimal::Decimal;
@@ -7,6 +9,19 @@ use uuid::Uuid;
 pub trait Params<'a> {
     fn params(self, out: &mut Vec<Parameter<'a>>);
     fn params_null(vec: &mut Vec<Parameter<'a>>);
+}
+
+impl<'a, T> Params<'a> for &T
+where
+    T: Params<'a> + Clone,
+{
+    fn params(self, out: &mut Vec<Parameter<'a>>) {
+        T::params(self.clone(), out)
+    }
+
+    fn params_null(vec: &mut Vec<Parameter<'a>>) {
+        T::params_null(vec)
+    }
 }
 
 impl<'a, T> Params<'a> for Option<T>
@@ -55,93 +70,117 @@ impl<'a> Params<'a> for Parameter<'a> {
     fn params_null(_: &mut Vec<Parameter<'a>>) {}
 }
 
-macro_rules! params {
-    (tuple $($t:ident:$n:tt),+$(,)?) => {
-        impl<'a, $($t),+> Params<'a> for ($($t,)+)
-        where $($t: Params<'a>),+
-        {
-            fn params(self, out: &mut Vec<Parameter<'a>>) {
-                $(
-                    self.$n.params(out);
-                )+
-            }
-
-            fn params_null(out: &mut Vec<Parameter<'a>>) {
-                $(
-                    $t::params_null(out);
-                )+
-            }
-        }
-    };
-    (deref $t:ty, $n:ident) => {
-        impl<'a> Params<'a> for $t {
-            fn params(self, out: &mut Vec<Parameter<'a>>) {
-                out.push(Parameter::$n(Some(self.into())))
-            }
-
-            fn params_null(out: &mut Vec<Parameter<'a>>) {
-                out.push(Parameter::$n(None))
-            }
-        }
-
-        impl<'a> Params<'a> for &$t {
-            fn params(self, out: &mut Vec<Parameter<'a>>) {
-                (*self).params(out)
-            }
-
-            fn params_null(out: &mut Vec<Parameter<'a>>) {
-                <$t>::params_null(out)
-            }
-        }
-    };
-    ($t:ty, $n:ident) => {
-        impl<'a> Params<'a> for $t {
-            fn params(self, out: &mut Vec<Parameter<'a>>) {
-                out.push(Parameter::$n(Some(self.into())))
-            }
-
-            fn params_null(out: &mut Vec<Parameter<'a>>) {
-                out.push(Parameter::$n(None))
-            }
-        }
-    };
-}
-
-params!(tuple A:0,);
-params!(tuple A:0,B:1,);
-params!(tuple A:0,B:1,C:2,);
-params!(tuple A:0,B:1,C:2,D:3,);
-params!(tuple A:0,B:1,C:2,D:3,E:4,);
-params!(tuple A:0,B:1,C:2,D:3,E:4,F:5,);
-params!(tuple A:0,B:1,C:2,D:3,E:4,F:5,G:6,);
-params!(tuple A:0,B:1,C:2,D:3,E:4,F:5,G:6,H:7,);
-params!(tuple A:0,B:1,C:2,D:3,E:4,F:5,G:6,H:7,I:8,);
-params!(tuple A:0,B:1,C:2,D:3,E:4,F:5,G:6,H:7,I:8,J:9,);
-
-params!(&'a String, String);
-params!(&'a str, String);
-params!(String, String);
-params!(deref Decimal, F64);
-params!(deref NaiveDate, Date);
-params!(deref NaiveDateTime, DateTime);
-params!(deref bool, Bool);
-params!(deref f32, F32);
-params!(deref f64, F64);
-params!(deref i16, I16);
-params!(deref i32, I32);
-params!(deref i64, I64);
-
-impl<'a> Params<'a> for Uuid {
+impl<'a> Params<'a> for bool {
     fn params(self, out: &mut Vec<Parameter<'a>>) {
-        out.push(self.into())
+        out.push(Parameter::Bool(Some(self)))
     }
 
     fn params_null(out: &mut Vec<Parameter<'a>>) {
-        out.push(Parameter::Uuid(None))
+        out.push(Parameter::Bool(None))
     }
 }
 
-impl<'a> Params<'a> for &Uuid {
+impl<'a> Params<'a> for Decimal {
+    fn params(self, out: &mut Vec<Parameter<'a>>) {
+        out.push(Parameter::F64(Some(self.into())))
+    }
+
+    fn params_null(out: &mut Vec<Parameter<'a>>) {
+        out.push(Parameter::F64(None))
+    }
+}
+
+impl<'a> Params<'a> for f32 {
+    fn params(self, out: &mut Vec<Parameter<'a>>) {
+        out.push(Parameter::F32(Some(self)))
+    }
+
+    fn params_null(out: &mut Vec<Parameter<'a>>) {
+        out.push(Parameter::F32(None))
+    }
+}
+
+impl<'a> Params<'a> for f64 {
+    fn params(self, out: &mut Vec<Parameter<'a>>) {
+        out.push(Parameter::F64(Some(self)))
+    }
+
+    fn params_null(out: &mut Vec<Parameter<'a>>) {
+        out.push(Parameter::F64(None))
+    }
+}
+
+impl<'a> Params<'a> for i16 {
+    fn params(self, out: &mut Vec<Parameter<'a>>) {
+        out.push(Parameter::I16(Some(self)))
+    }
+
+    fn params_null(out: &mut Vec<Parameter<'a>>) {
+        out.push(Parameter::I16(None))
+    }
+}
+
+impl<'a> Params<'a> for i32 {
+    fn params(self, out: &mut Vec<Parameter<'a>>) {
+        out.push(Parameter::I32(Some(self)))
+    }
+
+    fn params_null(out: &mut Vec<Parameter<'a>>) {
+        out.push(Parameter::I32(None))
+    }
+}
+
+impl<'a> Params<'a> for i64 {
+    fn params(self, out: &mut Vec<Parameter<'a>>) {
+        out.push(Parameter::I64(Some(self)))
+    }
+
+    fn params_null(out: &mut Vec<Parameter<'a>>) {
+        out.push(Parameter::I64(None))
+    }
+}
+
+impl<'a> Params<'a> for NaiveDate {
+    fn params(self, out: &mut Vec<Parameter<'a>>) {
+        out.push(Parameter::Date(Some(self)))
+    }
+
+    fn params_null(out: &mut Vec<Parameter<'a>>) {
+        out.push(Parameter::Date(None))
+    }
+}
+
+impl<'a> Params<'a> for NaiveDateTime {
+    fn params(self, out: &mut Vec<Parameter<'a>>) {
+        out.push(Parameter::DateTime(Some(self)))
+    }
+
+    fn params_null(out: &mut Vec<Parameter<'a>>) {
+        out.push(Parameter::DateTime(None))
+    }
+}
+
+impl<'a> Params<'a> for String {
+    fn params(self, out: &mut Vec<Parameter<'a>>) {
+        out.push(Parameter::String(Some(Cow::Owned(self))))
+    }
+
+    fn params_null(out: &mut Vec<Parameter<'a>>) {
+        out.push(Parameter::String(None))
+    }
+}
+
+impl<'a> Params<'a> for &'a str {
+    fn params(self, out: &mut Vec<Parameter<'a>>) {
+        out.push(Parameter::String(Some(Cow::Borrowed(self))))
+    }
+
+    fn params_null(out: &mut Vec<Parameter<'a>>) {
+        out.push(Parameter::String(None))
+    }
+}
+
+impl<'a> Params<'a> for Uuid {
     fn params(self, out: &mut Vec<Parameter<'a>>) {
         out.push(self.into())
     }
@@ -154,6 +193,78 @@ impl<'a> Params<'a> for &Uuid {
 impl<'a> Params<'a> for () {
     fn params(self, _: &mut Vec<Parameter<'a>>) {}
     fn params_null(_: &mut Vec<Parameter<'a>>) {}
+}
+
+impl<'a, A: Params<'a>> Params<'a> for (A,) {
+    fn params(self, out: &mut Vec<Parameter<'a>>) {
+        self.0.params(out);
+    }
+
+    fn params_null(out: &mut Vec<Parameter<'a>>) {
+        A::params_null(out);
+    }
+}
+
+impl<'a, A: Params<'a>, B: Params<'a>> Params<'a> for (A, B) {
+    fn params(self, out: &mut Vec<Parameter<'a>>) {
+        self.0.params(out);
+        self.1.params(out);
+    }
+
+    fn params_null(out: &mut Vec<Parameter<'a>>) {
+        A::params_null(out);
+        B::params_null(out);
+    }
+}
+
+impl<'a, A: Params<'a>, B: Params<'a>, C: Params<'a>> Params<'a> for (A, B, C) {
+    fn params(self, out: &mut Vec<Parameter<'a>>) {
+        self.0.params(out);
+        self.1.params(out);
+        self.2.params(out);
+    }
+
+    fn params_null(out: &mut Vec<Parameter<'a>>) {
+        A::params_null(out);
+        B::params_null(out);
+        C::params_null(out);
+    }
+}
+
+impl<'a, A: Params<'a>, B: Params<'a>, C: Params<'a>, D: Params<'a>> Params<'a> for (A, B, C, D) {
+    fn params(self, out: &mut Vec<Parameter<'a>>) {
+        self.0.params(out);
+        self.1.params(out);
+        self.2.params(out);
+        self.3.params(out);
+    }
+
+    fn params_null(out: &mut Vec<Parameter<'a>>) {
+        A::params_null(out);
+        B::params_null(out);
+        C::params_null(out);
+        D::params_null(out);
+    }
+}
+
+impl<'a, A: Params<'a>, B: Params<'a>, C: Params<'a>, D: Params<'a>, E: Params<'a>> Params<'a>
+    for (A, B, C, D, E)
+{
+    fn params(self, out: &mut Vec<Parameter<'a>>) {
+        self.0.params(out);
+        self.1.params(out);
+        self.2.params(out);
+        self.3.params(out);
+        self.4.params(out);
+    }
+
+    fn params_null(out: &mut Vec<Parameter<'a>>) {
+        A::params_null(out);
+        B::params_null(out);
+        C::params_null(out);
+        D::params_null(out);
+        E::params_null(out);
+    }
 }
 
 #[test]

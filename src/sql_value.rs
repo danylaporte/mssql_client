@@ -1,7 +1,6 @@
-use crate::row::Row;
+use crate::{row::Row, Error, Result};
 use chrono::{NaiveDate, NaiveDateTime};
 use decimal::Decimal;
-use failure::{format_err, Error};
 use tiberius::ty::{Guid, Numeric};
 use uuid::Uuid;
 
@@ -9,7 +8,7 @@ use uuid::Uuid;
 pub trait SqlValue<'a>: private::Sealed {
     fn check_db_ty(v: &str) -> bool;
     fn is_nullable() -> bool;
-    fn from_row(row: &'a Row, idx: usize) -> Result<Self, Error>
+    fn from_row(row: &'a Row, idx: usize) -> Result<Self>
     where
         Self: Sized;
 }
@@ -25,7 +24,7 @@ macro_rules! sql_value {
                 false
             }
 
-            fn from_row(row: &'a Row, idx: usize) -> Result<Self, Error> {
+            fn from_row(row: &'a Row, idx: usize) -> Result<Self> {
                 read(row.0.try_get(idx), idx).map($e)
             }
         }
@@ -39,7 +38,7 @@ macro_rules! sql_value {
                 true
             }
 
-            fn from_row(row: &'a Row, idx: usize) -> Result<Self, Error> {
+            fn from_row(row: &'a Row, idx: usize) -> Result<Self> {
                 read(row.0.try_get(idx), idx).map(|v: Option<_>| v.map($e))
             }
         }
@@ -106,14 +105,10 @@ fn numeric_to_decimal(n: Numeric) -> Decimal {
     decimal::Decimal::new_with_scale(n.value(), n.scale())
 }
 
-fn read<R>(result: Result<Option<R>, tiberius::Error>, idx: usize) -> Result<R, Error> {
+fn read<R>(result: std::result::Result<Option<R>, tiberius::Error>, idx: usize) -> Result<R> {
     match result {
         Ok(Some(r)) => Ok(r),
-        Ok(None) => Err(format_err!("Field {} not found.", idx)),
-        Err(e) => Err(format_err!(
-            "Conversion of field {} is invalid. {:?}",
-            idx,
-            e
-        )),
+        Ok(None) => Err(Error::FieldNotFound(idx)),
+        Err(e) => Err(Error::TiberiusField(e, idx)),
     }
 }

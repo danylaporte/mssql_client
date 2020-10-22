@@ -1,17 +1,16 @@
-use crate::{utils::reduce, Command, Connection, FromRow, Params, Row};
-use failure::{format_err, Error, ResultExt};
+use crate::{utils::reduce, Command, Connection, FromRow, Params, Result, Row};
 use futures03::{compat::Future01CompatExt, future::LocalBoxFuture};
-use log::{debug, error, trace};
-use std::{borrow::Cow, time::Instant};
+use std::{borrow::Cow, fmt::Debug};
 use tiberius::{BoxableIo, Transaction as SqlTransaction};
+use tracing::instrument;
 
 pub struct Transaction(pub(super) SqlTransaction<Box<dyn BoxableIo>>);
 
 impl Command for Transaction {
-    fn execute<'a, S, P>(self, sql: S, params: P) -> LocalBoxFuture<'a, Result<Self, Error>>
+    fn execute<'a, S, P>(self, sql: S, params: P) -> LocalBoxFuture<'a, Result<Self>>
     where
-        P: Params<'a> + 'a,
-        S: Into<Cow<'static, str>> + 'a,
+        P: Debug + Params<'a> + 'a,
+        S: Debug + Into<Cow<'static, str>> + 'a,
     {
         self.execute(sql, params)
     }
@@ -22,11 +21,11 @@ impl Command for Transaction {
         params: P,
         init: T,
         func: F,
-    ) -> LocalBoxFuture<'a, Result<(Self, T), Error>>
+    ) -> LocalBoxFuture<'a, Result<(Self, T)>>
     where
-        F: FnMut(T, &Row) -> Result<T, Error> + 'a,
-        P: Params<'a> + 'a,
-        S: Into<Cow<'static, str>> + 'a,
+        F: FnMut(T, &Row) -> Result<T> + 'a,
+        P: Debug + Params<'a> + 'a,
+        S: Debug + Into<Cow<'static, str>> + 'a,
         T: 'a,
         Self: Sized,
     {
@@ -35,67 +34,48 @@ impl Command for Transaction {
 }
 
 impl Transaction {
-    pub async fn commit(self) -> Result<Connection, Error> {
-        trace!("Committing transaction...");
-        let start = Instant::now();
-
-        let c = self.0.commit().compat().await.map_err(|e| {
-            let e = format_err!("Transaction commit failed. {:?}", e);
-            error!("{}", e);
-            e
-        })?;
-
-        trace!(
-            "Transaction committed in {}ms.",
-            (Instant::now() - start).as_millis(),
-        );
-
-        Ok(Connection(c))
+    pub fn commit(self) -> LocalBoxFuture<'static, Result<Connection>> {
+        Box::pin(self.commit_imp())
     }
 
-    pub fn execute<'a, S, P>(self, sql: S, params: P) -> LocalBoxFuture<'a, Result<Self, Error>>
+    #[instrument(level = "debug", name = "Transaction::commit", skip(self), err)]
+    async fn commit_imp(self) -> Result<Connection> {
+        Ok(Connection(self.0.commit().compat().await?))
+    }
+
+    pub fn execute<'a, S, P>(self, sql: S, params: P) -> LocalBoxFuture<'a, Result<Self>>
     where
-        P: Params<'a> + 'a,
-        S: Into<Cow<'static, str>> + 'a,
+        P: Debug + Params<'a> + 'a,
+        S: Debug + Into<Cow<'static, str>> + 'a,
     {
-        Box::pin(async {
-            let mut p = Vec::new();
-            params.params(&mut p);
-
-            let sql = sql.into();
-            let log_sql = format!("{:?}\nParams: {:#?}", sql, p);
-            let start = Instant::now();
-
-            trace!("Executing {}", log_sql);
-
-            let (_affected_rows, t) = if p.is_empty() {
-                self.0.simple_exec(sql).compat().await
-            } else {
-                let params = p.iter().map(|p| p.into()).collect::<Vec<_>>();
-                self.0.exec(sql, &params).compat().await
-            }
-            .map_err(move |e| {
-                debug!("Execute failed {}.", log_sql);
-                format_err!("Execute failed. {:?}", e)
-            })?;
-
-            trace!(
-                "Execute executed in {}ms.",
-                (Instant::now() - start).as_millis(),
-            );
-
-            Ok(Self(t))
-        })
+        Box::pin(self.execute_imp(sql, params))
     }
 
-    pub fn query<'a, T, S, P>(
-        self,
-        sql: S,
-        params: P,
-    ) -> LocalBoxFuture<'a, Result<(Self, Vec<T>), Error>>
+    #[instrument(level = "debug", name = "Transaction::execute", skip(self), err)]
+    async fn execute_imp<'a, S, P>(self, sql: S, params: P) -> Result<Self>
     where
-        P: Params<'a> + 'a,
-        S: Into<Cow<'static, str>> + 'a,
+        P: Debug + Params<'a> + 'a,
+        S: Debug + Into<Cow<'static, str>> + 'a,
+    {
+        let mut p = Vec::new();
+        params.params(&mut p);
+
+        let sql = sql.into();
+
+        let (_affected_rows, t) = if p.is_empty() {
+            self.0.simple_exec(sql).compat().await
+        } else {
+            let params = p.iter().map(|p| p.into()).collect::<Vec<_>>();
+            self.0.exec(sql, &params).compat().await
+        }?;
+
+        Ok(Self(t))
+    }
+
+    pub fn query<'a, T, S, P>(self, sql: S, params: P) -> LocalBoxFuture<'a, Result<(Self, Vec<T>)>>
+    where
+        P: Debug + Params<'a> + 'a,
+        S: Debug + Into<Cow<'static, str>> + 'a,
         T: FromRow + 'a,
     {
         self.query_map(sql, params, FromRow::from_row)
@@ -106,42 +86,52 @@ impl Transaction {
         sql: S,
         params: P,
         init: T,
-        mut func: F,
-    ) -> LocalBoxFuture<'a, Result<(Self, T), Error>>
+        func: F,
+    ) -> LocalBoxFuture<'a, Result<(Self, T)>>
     where
-        F: FnMut(T, &Row) -> Result<T, Error> + 'a,
-        P: Params<'a> + 'a,
-        S: Into<Cow<'static, str>> + 'a,
+        F: FnMut(T, &Row) -> Result<T> + 'a,
+        P: Debug + Params<'a> + 'a,
+        S: Debug + Into<Cow<'static, str>> + 'a,
         T: 'a,
     {
-        Box::pin(async {
-            let mut p = Vec::new();
-            params.params(&mut p);
+        Box::pin(self.query_fold_imp(sql, params, init, func))
+    }
 
-            let sql = sql.into();
-            let log_sql = format!("{:?}\nParams: {:#?}", sql, p);
-            let start = Instant::now();
+    #[instrument(
+        level = "debug",
+        name = "Transaction::query",
+        skip(self, init, func),
+        err
+    )]
+    async fn query_fold_imp<'a, T, S, P, F>(
+        self,
+        sql: S,
+        params: P,
+        init: T,
+        mut func: F,
+    ) -> Result<(Self, T)>
+    where
+        F: FnMut(T, &Row) -> Result<T> + 'a,
+        P: Debug + Params<'a> + 'a,
+        S: Debug + Into<Cow<'static, str>> + 'a,
+        T: 'a,
+    {
+        let mut p = Vec::new();
+        params.params(&mut p);
 
-            trace!("Querying {}", log_sql);
+        let sql = sql.into();
+        let next = move |r, row| func(r, &Row(row));
 
-            let next = move |r, row| Ok(func(r, &Row(row)).context("Row conversion failed")?);
+        let (t, rows) = if p.is_empty() {
+            let stream = self.0.simple_query(sql);
+            reduce(stream, init, next).await?
+        } else {
+            let params = p.iter().map(|p| p.into()).collect::<Vec<_>>();
+            let stream = self.0.query(sql, &params);
+            reduce(stream, init, next).await?
+        };
 
-            let (t, rows) = if p.is_empty() {
-                let stream = self.0.simple_query(sql);
-                reduce(stream, init, next, log_sql).await?
-            } else {
-                let params = p.iter().map(|p| p.into()).collect::<Vec<_>>();
-                let stream = self.0.query(sql, &params);
-                reduce(stream, init, next, log_sql).await?
-            };
-
-            trace!(
-                "Query executed in {}ms.",
-                (Instant::now() - start).as_millis(),
-            );
-
-            Ok((Self(t), rows))
-        })
+        Ok((Self(t), rows))
     }
 
     pub fn query_map<'a, T, S, P, F>(
@@ -149,11 +139,11 @@ impl Transaction {
         sql: S,
         params: P,
         mut func: F,
-    ) -> LocalBoxFuture<'a, Result<(Self, Vec<T>), Error>>
+    ) -> LocalBoxFuture<'a, Result<(Self, Vec<T>)>>
     where
-        F: FnMut(&Row) -> Result<T, Error> + 'a,
-        P: Params<'a> + 'a,
-        S: Into<Cow<'static, str>> + 'a,
+        F: FnMut(&Row) -> Result<T> + 'a,
+        P: Debug + Params<'a> + 'a,
+        S: Debug + Into<Cow<'static, str>> + 'a,
         T: 'a,
     {
         self.query_fold(sql, params, Vec::new(), move |mut vec, row| {
@@ -161,23 +151,13 @@ impl Transaction {
             Ok(vec)
         })
     }
+    pub fn rollback(self) -> LocalBoxFuture<'static, Result<Connection>> {
+        Box::pin(self.rollback_imp())
+    }
 
-    pub async fn rollback(self) -> Result<Connection, Error> {
-        trace!("Transaction rollback...");
-        let start = Instant::now();
-
-        let c = self.0.rollback().compat().await.map_err(|e| {
-            let e = format_err!("Rollback failed.{:?}", e);
-            error!("{}", e);
-            e
-        })?;
-
-        trace!(
-            "Transaction rollback successful in {}ms.",
-            (Instant::now() - start).as_millis(),
-        );
-
-        Ok(Connection(c))
+    #[instrument(level = "trace", name = "Transaction::rollback", skip(self), err)]
+    async fn rollback_imp(self) -> Result<Connection> {
+        Ok(Connection(self.0.rollback().compat().await?))
     }
 }
 
@@ -186,7 +166,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn commit() -> Result<(), failure::Error> {
+    async fn commit() -> Result<()> {
         Connection::from_env("MSSQL_DB")
             .await?
             .transaction()
@@ -198,7 +178,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn execute() -> Result<(), failure::Error> {
+    async fn execute() -> Result<()> {
         Connection::from_env("MSSQL_DB")
             .await?
             .transaction()
@@ -210,7 +190,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn execute_params() -> Result<(), failure::Error> {
+    async fn execute_params() -> Result<()> {
         Connection::from_env("MSSQL_DB")
             .await?
             .transaction()
@@ -222,7 +202,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn query() -> Result<(), failure::Error> {
+    async fn query() -> Result<()> {
         let (_, rows) = Connection::from_env("MSSQL_DB")
             .await?
             .transaction()
@@ -235,7 +215,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rollback() -> Result<(), failure::Error> {
+    async fn rollback() -> Result<()> {
         Connection::from_env("MSSQL_DB")
             .await?
             .transaction()

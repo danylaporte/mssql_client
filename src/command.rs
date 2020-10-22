@@ -1,7 +1,6 @@
-use crate::{FromRow, Params, Row};
-use failure::Error;
+use crate::{FromRow, Params, Result, Row};
 use futures03::future::LocalBoxFuture;
-use std::borrow::Cow;
+use std::{borrow::Cow, fmt::Debug};
 
 pub trait Command {
     /// Execute an sql command that does not returns rows.
@@ -9,29 +8,29 @@ pub trait Command {
     /// # Example
     /// ```
     /// use futures::Future;
-    /// use mssql_client::{Connection, Command};
+    /// use mssql_client::{Connection, Command, Result};
     ///
     /// #[tokio::main]
-    /// async fn main() -> Result<(), failure::Error> {
+    /// async fn main() -> Result<()> {
     ///     let conn = Connection::from_env("MSSQL_DB").await?;
     ///     Command::execute(conn, "DECLARE @i INT = @p1", 10).await?;
     ///     Ok(())
     /// }
     /// ```
-    fn execute<'a, S, P>(self, sql: S, params: P) -> LocalBoxFuture<'a, Result<Self, Error>>
+    fn execute<'a, S, P>(self, sql: S, params: P) -> LocalBoxFuture<'a, Result<Self>>
     where
-        P: Params<'a> + 'a,
-        S: Into<Cow<'static, str>> + 'a,
+        P: Debug + Params<'a> + 'a,
+        S: Debug + Into<Cow<'static, str>> + 'a,
         Self: Sized;
 
     /// Query the database and reads all rows.
     ///
     /// # Example
     /// ```
-    /// use mssql_client::{Connection, Command};
+    /// use mssql_client::{Connection, Command, Result};
     ///
     /// #[tokio::main]
-    /// async fn main() -> Result<(), failure::Error> {
+    /// async fn main() -> Result<()> {
     ///     let conn = Connection::from_env("MSSQL_DB").await?;
     ///     let (_, rows) = Command::query(conn, "SELECT @p1 + 2", 10).await?;
     ///
@@ -39,14 +38,10 @@ pub trait Command {
     ///     Ok(())
     /// }
     /// ```
-    fn query<'a, T, S, P>(
-        self,
-        sql: S,
-        params: P,
-    ) -> LocalBoxFuture<'a, Result<(Self, Vec<T>), Error>>
+    fn query<'a, T, S, P>(self, sql: S, params: P) -> LocalBoxFuture<'a, Result<(Self, Vec<T>)>>
     where
-        P: Params<'a> + 'a,
-        S: Into<Cow<'static, str>> + 'a,
+        P: Debug + Params<'a> + 'a,
+        S: Debug + Into<Cow<'static, str>> + 'a,
         Self: Sized,
         T: FromRow + 'a,
     {
@@ -60,10 +55,10 @@ pub trait Command {
     ///
     /// # Example
     /// ```
-    /// use mssql_client::{Connection, Command};
+    /// use mssql_client::{Connection, Command, Result};
     ///
     /// #[tokio::main]
-    /// async fn main() -> Result<(), failure::Error> {
+    /// async fn main() -> Result<()> {
     ///     let conn = Connection::from_env("MSSQL_DB").await?;
     ///
     ///     let (_, rows) = Command::query_map(
@@ -82,11 +77,11 @@ pub trait Command {
         sql: S,
         params: P,
         mut func: F,
-    ) -> LocalBoxFuture<'a, Result<(Self, Vec<T>), Error>>
+    ) -> LocalBoxFuture<'a, Result<(Self, Vec<T>)>>
     where
-        F: FnMut(&Row) -> Result<T, Error> + 'a,
-        P: Params<'a> + 'a,
-        S: Into<Cow<'static, str>> + 'a,
+        F: FnMut(&Row) -> Result<T> + 'a,
+        P: Debug + Params<'a> + 'a,
+        S: Debug + Into<Cow<'static, str>> + 'a,
         Self: Sized,
         T: 'a,
     {
@@ -102,11 +97,11 @@ pub trait Command {
         params: P,
         init: T,
         func: F,
-    ) -> LocalBoxFuture<'a, Result<(Self, T), Error>>
+    ) -> LocalBoxFuture<'a, Result<(Self, T)>>
     where
-        F: FnMut(T, &Row) -> Result<T, Error> + 'a,
-        P: Params<'a> + 'a,
-        S: Into<Cow<'static, str>> + 'a,
+        F: FnMut(T, &Row) -> Result<T> + 'a,
+        P: Debug + Params<'a> + 'a,
+        S: Debug + Into<Cow<'static, str>> + 'a,
         Self: Sized,
         T: 'a;
 }
@@ -118,12 +113,12 @@ mod tests {
     use uuid::Uuid;
 
     #[tokio::test]
-    async fn execute_params() -> Result<(), Error> {
-        fn exec<'a, C, S, P>(c: C, sql: S, params: P) -> LocalBoxFuture<'a, Result<C, Error>>
+    async fn execute_params() -> Result<()> {
+        fn exec<'a, C, S, P>(c: C, sql: S, params: P) -> LocalBoxFuture<'a, Result<C>>
         where
             C: Command + 'a,
-            S: Into<Cow<'static, str>> + 'a,
-            P: Params<'a> + 'a,
+            S: Debug + Into<Cow<'static, str>> + 'a,
+            P: Debug + Params<'a> + 'a,
         {
             c.execute(sql, params)
         }

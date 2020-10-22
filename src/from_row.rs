@@ -1,9 +1,7 @@
-use crate::{FromColumn, Row};
-use failure::Error;
-
+use crate::{FromColumn, Result, Row};
 /// Takes a [Row](struct.Row.html) and convert it into a type.
 pub trait FromRow {
-    fn from_row(row: &Row) -> Result<Self, Error>
+    fn from_row(row: &Row) -> Result<Self>
     where
         Self: Sized;
 }
@@ -12,7 +10,7 @@ impl<A> FromRow for A
 where
     A: for<'a> FromColumn<'a>,
 {
-    fn from_row(row: &Row) -> Result<Self, Error> {
+    fn from_row(row: &Row) -> Result<Self> {
         Ok(row.get(0)?)
     }
 }
@@ -22,7 +20,7 @@ where
     A: for<'a> FromColumn<'a>,
     B: for<'a> FromColumn<'a>,
 {
-    fn from_row(row: &Row) -> Result<Self, Error> {
+    fn from_row(row: &Row) -> Result<Self> {
         Ok((row.get(0)?, row.get(1)?))
     }
 }
@@ -33,7 +31,7 @@ where
     B: for<'a> FromColumn<'a>,
     C: for<'a> FromColumn<'a>,
 {
-    fn from_row(row: &Row) -> Result<Self, Error> {
+    fn from_row(row: &Row) -> Result<Self> {
         Ok((row.get(0)?, row.get(1)?, row.get(2)?))
     }
 }
@@ -45,7 +43,7 @@ where
     C: for<'a> FromColumn<'a>,
     D: for<'a> FromColumn<'a>,
 {
-    fn from_row(row: &Row) -> Result<Self, Error> {
+    fn from_row(row: &Row) -> Result<Self> {
         Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
     }
 }
@@ -58,7 +56,7 @@ where
     D: for<'a> FromColumn<'a>,
     E: for<'a> FromColumn<'a>,
 {
-    fn from_row(row: &Row) -> Result<Self, Error> {
+    fn from_row(row: &Row) -> Result<Self> {
         Ok((
             row.get(0)?,
             row.get(1)?,

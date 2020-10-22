@@ -3,10 +3,10 @@
 /// # Example
 ///
 /// ```
-/// use mssql_client::{execute_sql, Connection};
+/// use mssql_client::{execute_sql, Connection, Result};
 ///
 /// #[tokio::main]
-/// async fn main() -> Result<(), failure::Error> {
+/// async fn main() -> Result<()> {
 ///     let conn = Connection::from_env("MSSQL_DB").await?;
 ///     let _conn = execute_sql!(conn, r#"
 ///         DECLARE @value1 int = @id;
@@ -45,8 +45,10 @@ macro_rules! execute_sql {
 
 #[cfg(test)]
 mod tests {
+    use crate::Result;
+
     #[tokio::test]
-    async fn execute_works() -> Result<(), failure::Error> {
+    async fn execute_works() -> Result<()> {
         use crate::Connection;
 
         struct Account<'a> {

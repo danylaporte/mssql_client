@@ -8,13 +8,12 @@ edition = "2018"
 chrono = "0.4"
 conn_str = { git = "https://github.com/danylaporte/conn_str.git" }
 decimal = { git = "https://github.com/danylaporte/dec19x5.git", package = "dec19x5" }
-failure = "0.1"
 futures = "0.1"
 futures-state-stream = "0.1"
 futures03 = { package = "futures", version = "0.3", features = ["compat"] }
-log = "0.4"
-once_cell = "1.4"
 tiberius = { git = "https://github.com/danylaporte/tiberius.git" }
+tracing = "0.1"
+tracing-futures = "0.2"
 uuid = { version = "0.8", features = [ "v4" ] }
 
 [dev-dependencies]

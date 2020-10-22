@@ -1,12 +1,11 @@
 use crate::{
     utils::{adjust_conn_str, reduce},
-    Command, FromRow, Params, Row, Transaction,
+    Command, FromRow, Params, Result, Row, Transaction,
 };
-use failure::{format_err, Error, ResultExt};
 use futures03::{compat::Future01CompatExt, future::LocalBoxFuture};
-use log::{debug, error, trace};
-use std::{borrow::Cow, env::var, ffi::OsStr, time::Instant};
+use std::{borrow::Cow, env::var, ffi::OsStr, fmt::Debug};
 use tiberius::{BoxableIo, SqlConnection};
+use tracing::instrument;
 
 /// A database connection.
 ///
@@ -15,10 +14,10 @@ use tiberius::{BoxableIo, SqlConnection};
 ///
 /// # Example
 /// ```
-/// use mssql_client::Connection;
+/// use mssql_client::{Connection, Result};
 ///
 /// #[tokio::main]
-/// async fn main() -> Result<(), failure::Error> {
+/// async fn main() -> Result<()> {
 ///     let conn_str = "server=tcp:localhost\\SQL2017;database=master;integratedsecurity=sspi;trustservercertificate=true";
 ///     let connection = Connection::connect(conn_str).await?;
 ///     Ok(())
@@ -27,10 +26,10 @@ use tiberius::{BoxableIo, SqlConnection};
 pub struct Connection(pub(super) SqlConnection<Box<dyn BoxableIo>>);
 
 impl Command for Connection {
-    fn execute<'a, S, P>(self, sql: S, params: P) -> LocalBoxFuture<'a, Result<Self, Error>>
+    fn execute<'a, S, P>(self, sql: S, params: P) -> LocalBoxFuture<'a, Result<Self>>
     where
-        P: Params<'a> + 'a,
-        S: Into<Cow<'static, str>> + 'a,
+        P: Debug + Params<'a> + 'a,
+        S: Debug + Into<Cow<'static, str>> + 'a,
     {
         self.execute(sql, params)
     }
@@ -41,11 +40,11 @@ impl Command for Connection {
         params: P,
         init: T,
         func: F,
-    ) -> LocalBoxFuture<'a, Result<(Self, T), Error>>
+    ) -> LocalBoxFuture<'a, Result<(Self, T)>>
     where
-        F: FnMut(T, &Row) -> Result<T, Error> + 'a,
-        P: Params<'a> + 'a,
-        S: Into<Cow<'static, str>> + 'a,
+        F: FnMut(T, &Row) -> Result<T> + 'a,
+        P: Debug + Params<'a> + 'a,
+        S: Debug + Into<Cow<'static, str>> + 'a,
         T: 'a,
         Self: Sized,
     {
@@ -57,40 +56,29 @@ impl Connection {
     /// Creates a connection future that will resolve to a Connection once connected.
     /// # Example
     /// ```
-    /// use mssql_client::Connection;
+    /// use mssql_client::{Connection, Result};
     ///
     /// #[tokio::main]
-    /// async fn main() -> Result<(), failure::Error> {
+    /// async fn main() -> Result<()> {
     ///     let conn_str = "server=tcp:localhost\\SQL2017;database=master;integratedsecurity=sspi;trustservercertificate=true";
     ///     let connection = Connection::connect(conn_str).await?;
     ///     Ok(())
     /// }
     /// ```
-    pub async fn connect<S>(conn_str: S) -> Result<Self, Error>
+    pub fn connect<'a, S>(conn_str: S) -> LocalBoxFuture<'a, Result<Self>>
     where
-        S: Into<String>,
+        S: Debug + Into<String> + 'a,
+    {
+        Box::pin(Self::connect_imp(conn_str))
+    }
+
+    #[instrument(level = "debug", name = "Connection::connect", err)]
+    async fn connect_imp<S>(conn_str: S) -> Result<Self>
+    where
+        S: Debug + Into<String>,
     {
         let conn_str = adjust_conn_str(&conn_str.into())?;
-
-        trace!("Connecting to db...");
-
-        let start = Instant::now();
-
-        let c = SqlConnection::connect(&conn_str)
-            .compat()
-            .await
-            .map_err(|e| {
-                let e = format_err!("Failed connecting to db. {:?}", e);
-                error!("{}", e);
-                debug!("Failed connection string: {}", conn_str);
-                e
-            })?;
-
-        trace!(
-            "Connected to db in {}ms.",
-            (Instant::now() - start).as_millis(),
-        );
-
+        let c = SqlConnection::connect(&conn_str).compat().await?;
         Ok(Connection(c))
     }
 
@@ -100,23 +88,21 @@ impl Connection {
     ///
     /// # Example
     /// ```
-    /// use mssql_client::Connection;
+    /// use mssql_client::{Connection, Result};
     ///
     /// #[tokio::main]
-    /// async fn main() -> Result<(), failure::Error> {
+    /// async fn main() -> Result<()> {
     ///     let connection = Connection::from_env("MSSQL_DB").await?;
     ///     Ok(())
     /// }
     /// ```
-    pub async fn from_env<K>(key: K) -> Result<Self, Error>
+    pub async fn from_env<K>(key: K) -> Result<Self>
     where
         K: AsRef<OsStr>,
     {
         let key = key.as_ref();
 
-        let conn_str = var(key)
-            .map_err(|e| format_err!("Connection from env variable {:#?} failed. {}", key, e))?;
-
+        let conn_str = var(key)?;
         Ok(Connection::connect(conn_str).await?)
     }
 
@@ -124,48 +110,42 @@ impl Connection {
     ///
     /// # Example
     /// ```
-    /// use mssql_client::Connection;
+    /// use mssql_client::{Connection, Result};
     ///
     /// #[tokio::main]
-    /// async fn main() -> Result<(), failure::Error> {
+    /// async fn main() -> Result<()> {
     ///     let connection = Connection::from_env("MSSQL_DB").await?;
     ///     let connection = connection.execute("DECLARE @a INT = 0", ()).await?;
     ///     Ok(())
     /// }
     /// ```
-    pub fn execute<'a, S, P>(self, sql: S, params: P) -> LocalBoxFuture<'a, Result<Self, Error>>
+    pub fn execute<'a, S, P>(self, sql: S, params: P) -> LocalBoxFuture<'a, Result<Self>>
     where
-        S: Into<Cow<'static, str>> + 'a,
-        P: Params<'a> + 'a,
+        S: Debug + Into<Cow<'static, str>> + 'a,
+        P: Debug + Params<'a> + 'a,
     {
-        Box::pin(async {
-            let mut p = Vec::new();
-            params.params(&mut p);
+        Box::pin(self.execute_imp(sql, params))
+    }
 
-            let sql = sql.into();
-            let log_sql = format!("{:?}\nParams: {:#?}", sql, p);
-            let start = Instant::now();
+    #[instrument(level = "debug", name = "Connection::execute", skip(self), err)]
+    async fn execute_imp<'a, S, P>(self, sql: S, params: P) -> Result<Self>
+    where
+        S: Debug + Into<Cow<'static, str>> + 'a,
+        P: Debug + Params<'a> + 'a,
+    {
+        let mut p = Vec::new();
+        params.params(&mut p);
 
-            trace!("Executing {}", log_sql);
+        let sql = sql.into();
 
-            let (_affected_rows, conn) = if p.is_empty() {
-                self.0.simple_exec(sql).compat().await
-            } else {
-                let params = p.iter().map(|p| p.into()).collect::<Vec<_>>();
-                self.0.exec(sql, &params).compat().await
-            }
-            .map_err(move |e| {
-                debug!("Execute failed {}.", log_sql);
-                format_err!("Execute failed. {:?}", e)
-            })?;
+        let (_affected_rows, conn) = if p.is_empty() {
+            self.0.simple_exec(sql).compat().await
+        } else {
+            let params = p.iter().map(|p| p.into()).collect::<Vec<_>>();
+            self.0.exec(sql, &params).compat().await
+        }?;
 
-            debug!(
-                "Execute executed in {}ms.",
-                (Instant::now() - start).as_millis(),
-            );
-
-            Ok(Self(conn))
-        })
+        Ok(Self(conn))
     }
 
     /// Execute sql query and returns all the rows.
@@ -173,10 +153,10 @@ impl Connection {
     /// # Example
     /// ```
     /// #[macro_use]
-    /// use mssql_client::Connection;
+    /// use mssql_client::{Connection, Result};
     ///
     /// #[tokio::main]
-    /// async fn main() -> Result<(), failure::Error> {
+    /// async fn main() -> Result<()> {
     ///     let (connection, rows): (_, Vec<i32>) = Connection::from_env("MSSQL_DB")
     ///         .await?
     ///         .query("SELECT 1", ())
@@ -186,17 +166,13 @@ impl Connection {
     ///     Ok(())
     /// }
     /// ```
-    pub fn query<'a, T, S, P>(
-        self,
-        sql: S,
-        params: P,
-    ) -> LocalBoxFuture<'a, Result<(Self, Vec<T>), Error>>
+    pub async fn query<'a, T, S, P>(self, sql: S, params: P) -> Result<(Self, Vec<T>)>
     where
-        P: Params<'a> + 'a,
-        S: Into<Cow<'static, str>> + 'a,
+        P: Debug + Params<'a> + 'a,
+        S: Debug + Into<Cow<'static, str>> + 'a,
         T: FromRow + 'a,
     {
-        self.query_map(sql, params, FromRow::from_row)
+        self.query_map(sql, params, FromRow::from_row).await
     }
 
     pub fn query_fold<'a, T, S, P, F>(
@@ -204,42 +180,51 @@ impl Connection {
         sql: S,
         params: P,
         init: T,
-        mut func: F,
-    ) -> LocalBoxFuture<'a, Result<(Self, T), Error>>
+        func: F,
+    ) -> LocalBoxFuture<'a, Result<(Self, T)>>
     where
-        F: FnMut(T, &Row) -> Result<T, Error> + 'a,
-        P: Params<'a> + 'a,
-        S: Into<Cow<'static, str>> + 'a,
+        F: FnMut(T, &Row) -> Result<T> + 'a,
+        P: Debug + Params<'a> + 'a,
+        S: Debug + Into<Cow<'static, str>> + 'a,
         T: 'a,
     {
-        Box::pin(async {
-            let mut p = Vec::new();
-            params.params(&mut p);
+        Box::pin(self.query_fold_imp(sql, params, init, func))
+    }
 
-            let sql = sql.into();
-            let log_sql = format!("{:?}\nParams: {:#?}", sql, p);
-            let start = Instant::now();
+    #[instrument(
+        level = "debug",
+        name = "Connection::query_fold",
+        skip(self, init, func),
+        err
+    )]
+    pub async fn query_fold_imp<'a, T, S, P, F>(
+        self,
+        sql: S,
+        params: P,
+        init: T,
+        mut func: F,
+    ) -> Result<(Self, T)>
+    where
+        F: FnMut(T, &Row) -> Result<T>,
+        P: Debug + Params<'a>,
+        S: Debug + Into<Cow<'static, str>>,
+    {
+        let mut p = Vec::new();
+        params.params(&mut p);
 
-            trace!("Querying {}", log_sql);
+        let sql = sql.into();
+        let next = move |r, row| func(r, &Row(row));
 
-            let next = move |r, row| Ok(func(r, &Row(row)).context("Row conversion failed")?);
+        let (conn, rows) = if p.is_empty() {
+            let stream = self.0.simple_query(sql);
+            reduce(stream, init, next).await
+        } else {
+            let params = p.iter().map(|p| p.into()).collect::<Vec<_>>();
+            let stream = self.0.query(sql, &params);
+            reduce(stream, init, next).await
+        }?;
 
-            let (conn, rows) = if p.is_empty() {
-                let stream = self.0.simple_query(sql);
-                reduce(stream, init, next, log_sql).await?
-            } else {
-                let params = p.iter().map(|p| p.into()).collect::<Vec<_>>();
-                let stream = self.0.query(sql, &params);
-                reduce(stream, init, next, log_sql).await?
-            };
-
-            trace!(
-                "Query executed in {}ms.",
-                (Instant::now() - start).as_millis(),
-            );
-
-            Ok((Self(conn), rows))
-        })
+        Ok((Self(conn), rows))
     }
 
     pub fn query_map<'a, T, S, P, F>(
@@ -247,11 +232,11 @@ impl Connection {
         sql: S,
         params: P,
         mut func: F,
-    ) -> LocalBoxFuture<'a, Result<(Self, Vec<T>), Error>>
+    ) -> LocalBoxFuture<'a, Result<(Self, Vec<T>)>>
     where
-        F: FnMut(&Row) -> Result<T, Error> + 'a,
-        P: Params<'a> + 'a,
-        S: Into<Cow<'static, str>> + 'a,
+        F: FnMut(&Row) -> Result<T> + 'a,
+        P: Debug + Params<'a> + 'a,
+        S: Debug + Into<Cow<'static, str>> + 'a,
         T: 'a,
     {
         self.query_fold(sql, params, Vec::new(), move |mut vec, row| {
@@ -260,10 +245,12 @@ impl Connection {
         })
     }
 
-    pub async fn transaction(self) -> Result<Transaction, Error> {
-        trace!("starting transaction...");
-        let start = Instant::now();
+    pub fn transaction(self) -> LocalBoxFuture<'static, Result<Transaction>> {
+        Box::pin(self.transaction_imp())
+    }
 
+    #[instrument(level = "debug", name = "Connection::transaction", skip(self), err)]
+    async fn transaction_imp(self) -> Result<Transaction> {
         use futures::future::Future;
 
         let (_, t) = self
@@ -272,17 +259,7 @@ impl Connection {
             .and_then(|t| t.simple_exec("set implicit_transactions off"))
             .and_then(|(_, t)| t.simple_exec("BEGIN TRANSACTION"))
             .compat()
-            .await
-            .map_err(|e| {
-                let e = format_err!("Start transaction failed. {:?}", e);
-                error!("{}", e);
-                e
-            })?;
-
-        trace!(
-            "transaction started in {}ms.",
-            (Instant::now() - start).as_millis(),
-        );
+            .await?;
 
         Ok(Transaction(t))
     }
@@ -293,13 +270,13 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn connect() -> Result<(), Error> {
+    async fn connect() -> Result<()> {
         Connection::from_env("MSSQL_DB").await?;
         Ok(())
     }
 
     #[tokio::test]
-    async fn execute() -> Result<(), Error> {
+    async fn execute() -> Result<()> {
         Connection::from_env("MSSQL_DB")
             .await?
             .execute("DECLARE @a INT = 0", ())
@@ -308,7 +285,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn execute_params() -> Result<(), Error> {
+    async fn execute_params() -> Result<()> {
         Connection::from_env("MSSQL_DB")
             .await?
             .execute("DECLARE @a INT = @p1", 10)
@@ -317,7 +294,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn query() -> Result<(), Error> {
+    async fn query() -> Result<()> {
         let (_connection, rows) = Connection::from_env("MSSQL_DB")
             .await?
             .query("SELECT 2", ())
@@ -328,7 +305,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn query_params() -> Result<(), Error> {
+    async fn query_params() -> Result<()> {
         let (_connection, rows) = Connection::from_env("MSSQL_DB")
             .await?
             .query::<(String, i32), _, _>("SELECT @P1, @P2", ("Foo", 3))
@@ -340,7 +317,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn query_params_nulls() -> Result<(), Error> {
+    async fn query_params_nulls() -> Result<()> {
         use uuid::Uuid;
         let sql = r#"
             DECLARE @V1 NVARCHAR(100) = @p1;
@@ -365,7 +342,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn query_decimal() -> Result<(), Error> {
+    async fn query_decimal() -> Result<()> {
         let (_connection, rows) = Connection::from_env("MSSQL_DB")
             .await?
             .query("SELECT CAST(15337032 as DECIMAL(28, 12))", ())
@@ -376,7 +353,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn query_f64() -> Result<(), Error> {
+    async fn query_f64() -> Result<()> {
         let (_connection, rows) = Connection::from_env("MSSQL_DB")
             .await?
             .query("SELECT CAST(15337032 as DECIMAL(28, 12))", ())
