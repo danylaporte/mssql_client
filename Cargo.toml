@@ -3,6 +3,7 @@ name = "mssql_client"
 version = "0.8.3"
 authors = ["Dany Laporte <dany_laporte@hotmail.com>"]
 edition = "2018"
+publish = false
 
 [dependencies]
 chrono = "0.4"
