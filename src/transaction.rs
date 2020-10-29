@@ -1,6 +1,6 @@
 use crate::{utils::reduce, Command, Connection, FromRow, Params, Result, Row};
 use futures03::{compat::Future01CompatExt, future::LocalBoxFuture};
-use std::{borrow::Cow, fmt::Debug};
+use std::{borrow::Cow, ffi::OsStr, fmt::Debug};
 use tiberius::{BoxableIo, Transaction as SqlTransaction};
 use tracing::instrument;
 
@@ -34,6 +34,13 @@ impl Command for Transaction {
 }
 
 impl Transaction {
+    pub async fn from_env<K>(key: K) -> Result<Self>
+    where
+        K: AsRef<OsStr>,
+    {
+        Connection::from_env(key).await?.transaction().await
+    }
+
     pub fn commit(self) -> LocalBoxFuture<'static, Result<Connection>> {
         Box::pin(self.commit_imp())
     }
