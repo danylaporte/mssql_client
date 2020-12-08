@@ -1,10 +1,11 @@
 use crate::{
-    utils::{adjust_conn_str, reduce},
+    utils::{adjust_conn_str, params_to_vec, reduce},
     Command, FromRow, Params, Result, Row, Transaction,
 };
 use futures03::{compat::Future01CompatExt, future::LocalBoxFuture};
+use futures_state_stream::StateStream;
 use std::{borrow::Cow, env::var, ffi::OsStr, fmt::Debug};
-use tiberius::{BoxableIo, SqlConnection};
+use tiberius::{query::QueryRow, BoxableIo, SqlConnection};
 use tracing::instrument;
 
 /// A database connection.
@@ -141,7 +142,7 @@ impl Connection {
         let (_affected_rows, conn) = if p.is_empty() {
             self.0.simple_exec(sql).compat().await
         } else {
-            let params = p.iter().map(|p| p.into()).collect::<Vec<_>>();
+            let params = params_to_vec(&p);
             self.0.exec(sql, &params).compat().await
         }?;
 
@@ -215,14 +216,19 @@ impl Connection {
         let sql = sql.into();
         let next = move |r, row| func(r, &Row(row));
 
-        let (conn, rows) = if p.is_empty() {
-            let stream = self.0.simple_query(sql);
-            reduce(stream, init, next).await
+        let stream: Box<
+            dyn StateStream<
+                Item = QueryRow,
+                State = SqlConnection<Box<dyn BoxableIo>>,
+                Error = tiberius::Error,
+            >,
+        > = if p.is_empty() {
+            Box::new(self.0.simple_query(sql))
         } else {
-            let params = p.iter().map(|p| p.into()).collect::<Vec<_>>();
-            let stream = self.0.query(sql, &params);
-            reduce(stream, init, next).await
-        }?;
+            Box::new(self.0.query(sql, &params_to_vec(&p)))
+        };
+
+        let (conn, rows) = reduce(stream, init, next).await?;
 
         Ok((Self(conn), rows))
     }

@@ -1,7 +1,11 @@
-use crate::{utils::reduce, Command, Connection, FromRow, Params, Result, Row};
+use crate::{
+    utils::{params_to_vec, reduce},
+    Command, Connection, FromRow, Params, Result, Row,
+};
 use futures03::{compat::Future01CompatExt, future::LocalBoxFuture};
+use futures_state_stream::StateStream;
 use std::{borrow::Cow, ffi::OsStr, fmt::Debug};
-use tiberius::{BoxableIo, Transaction as SqlTransaction};
+use tiberius::{query::QueryRow, BoxableIo, Transaction as SqlTransaction};
 use tracing::instrument;
 
 pub struct Transaction(pub(super) SqlTransaction<Box<dyn BoxableIo>>);
@@ -72,8 +76,7 @@ impl Transaction {
         let (_affected_rows, t) = if p.is_empty() {
             self.0.simple_exec(sql).compat().await
         } else {
-            let params = p.iter().map(|p| p.into()).collect::<Vec<_>>();
-            self.0.exec(sql, &params).compat().await
+            self.0.exec(sql, &params_to_vec(&p)).compat().await
         }?;
 
         Ok(Self(t))
@@ -129,14 +132,19 @@ impl Transaction {
         let sql = sql.into();
         let next = move |r, row| func(r, &Row(row));
 
-        let (t, rows) = if p.is_empty() {
-            let stream = self.0.simple_query(sql);
-            reduce(stream, init, next).await?
+        let stream: Box<
+            dyn StateStream<
+                Item = QueryRow,
+                State = SqlTransaction<Box<dyn BoxableIo>>,
+                Error = tiberius::Error,
+            >,
+        > = if p.is_empty() {
+            Box::new(self.0.simple_query(sql))
         } else {
-            let params = p.iter().map(|p| p.into()).collect::<Vec<_>>();
-            let stream = self.0.query(sql, &params);
-            reduce(stream, init, next).await?
+            Box::new(self.0.query(sql, &params_to_vec(&p)))
         };
+
+        let (t, rows) = reduce(stream, init, next).await?;
 
         Ok((Self(t), rows))
     }

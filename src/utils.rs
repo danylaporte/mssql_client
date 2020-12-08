@@ -1,9 +1,10 @@
-use crate::Error;
+use crate::{Error, Parameter};
 use conn_str::{append_key_value, MsSqlConnStr};
 use futures::Future;
 use futures03::compat::Future01CompatExt;
 use futures_state_stream::StateStream;
 use std::str::FromStr;
+use tiberius::ty::ToSql;
 use tracing::instrument;
 
 pub(crate) fn adjust_conn_str(s: &str) -> Result<String, Error> {
@@ -263,4 +264,8 @@ where
         .and_then(|r| r.map(|(s, r)| (s.expect("State"), r)))
         .compat()
         .await
+}
+
+pub(crate) fn params_to_vec<'a>(vec: &'a Vec<Parameter<'a>>) -> Vec<&'a dyn ToSql> {
+    vec.iter().map(|p| p.into()).collect::<Vec<_>>()
 }
