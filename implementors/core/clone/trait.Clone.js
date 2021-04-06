@@ -1,0 +1,3 @@
+(function() {var implementors = {};
+implementors["mssql_client"] = [{"text":"impl <a class=\"trait\" href=\"https://doc.rust-lang.org/nightly/core/clone/trait.Clone.html\" title=\"trait core::clone::Clone\">Clone</a> for <a class=\"struct\" href=\"mssql_client/struct.ConnectionFactory.html\" title=\"struct mssql_client::ConnectionFactory\">ConnectionFactory</a>","synthetic":false,"types":["mssql_client::connection_factory::ConnectionFactory"]}];
+if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()
