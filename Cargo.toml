@@ -12,7 +12,7 @@ decimal = { git = "https://github.com/danylaporte/dec19x5.git", package = "dec19
 futures = "0.1"
 futures-state-stream = "0.1"
 futures03 = { package = "futures", version = "0.3", features = ["compat"] }
-tiberius = { git = "https://github.com/danylaporte/tiberius.git" }
+tiberius = { git = "https://github.com/danylaporte/tiberius.git", branch = "flock" }
 tracing = "0.1"
 tracing-futures = "0.2"
 uuid = { version = "0.8", features = [ "v4" ] }
